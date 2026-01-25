@@ -26,17 +26,24 @@ function startPythonEngine() {
 }
 
 // 2. Function to Listen to ZeroMQ
+// electron/main.js
+
 async function runZmqReceiver() {
   const sock = new zmq.Subscriber();
   
   sock.connect('tcp://127.0.0.1:5555');
-  sock.subscribe(''); // Subscribe to ALL messages
+  sock.subscribe(''); 
   console.log('[Electron] Connected to ZMQ');
 
   for await (const [msg] of sock) {
-    // Forward data to the React UI
+    const dataString = msg.toString();
+    
+    // --- ADD THIS LINE TO SEE THE DATA IN TERMINAL ---
+    console.log(`[ZMQ Received]: ${dataString}`); 
+    // -------------------------------------------------
+
     if (mainWindow) {
-      mainWindow.webContents.send('python-data', msg.toString());
+      mainWindow.webContents.send('python-data', dataString);
     }
   }
 }
