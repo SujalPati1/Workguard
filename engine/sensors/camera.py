@@ -28,6 +28,19 @@ face_mesh = mp_face_mesh.FaceMesh(
 LEFT_EYE = [362, 385, 387, 263, 373, 380]
 RIGHT_EYE = [33, 160, 158, 133, 153, 144]
 
+# 3D Model Points (Generic Human Head)
+FACE_3D = np.array([
+    (0.0, 0.0, 0.0),             # Nose tip
+    (0.0, -330.0, -65.0),        # Chin
+    (-225.0, 170.0, -135.0),     # Left eye left corner
+    (225.0, 170.0, -135.0),      # Right eye right corner
+    (-150.0, -150.0, -125.0),    # Left Mouth corner
+    (150.0, -150.0, -125.0)      # Right mouth corner
+], dtype=np.float64)
+
+# Corresponding 2D Landmark Indices
+POSE_INDICES = [1, 152, 33, 263, 61, 291]
+
 def calculate_ear(landmarks, eye_indices):
     """ Standard EAR Formula """
     # (Same math as before, no changes needed here)
@@ -38,7 +51,49 @@ def calculate_ear(landmarks, eye_indices):
     if C == 0: return 0.0
     return (A + B) / (2.0 * C)
 
-def get_eye_state(frame):
+def get_head_pose(landmarks, frame_w, frame_h):
+    """
+    Solves PnP to get Head Rotation (Pitch, Yaw, Roll).
+    """
+    face_2d = []
+    for idx in POSE_INDICES:
+        lm = landmarks[idx]
+        x, y = int(lm.x * frame_w), int(lm.y * frame_h)
+        face_2d.append([x, y])
+
+    face_2d = np.array(face_2d, dtype=np.float64)
+
+    # Camera Internals
+    focal_length = 1 * frame_w
+    
+    # --- FIXED CAMERA MATRIX ---
+    # Col 0 = X (Width), Col 1 = Y (Height)
+    cam_matrix = np.array([ 
+        [focal_length, 0, frame_w / 2],  # Center X = Width / 2
+        [0, focal_length, frame_h / 2],  # Center Y = Height / 2
+        [0, 0, 1]
+    ])
+
+    dist_matrix = np.zeros((4, 1), dtype=np.float64)
+
+    # Solve PnP
+    success, rot_vec, trans_vec = cv2.solvePnP(FACE_3D, face_2d, cam_matrix, dist_matrix)
+
+    if not success:
+        return 0, 0, 0
+
+    # Convert to Angles
+    rmat, _ = cv2.Rodrigues(rot_vec)
+    proj_matrix = np.hstack((rmat, trans_vec))
+    eulerAngles = cv2.decomposeProjectionMatrix(proj_matrix)[6]
+    
+    pitch = eulerAngles[0][0]
+    yaw = eulerAngles[1][0]
+    roll = eulerAngles[2][0]
+    
+    return pitch, yaw, roll
+
+def get_biometrics(frame):
     """
     The 'Zoom Pipeline':
     1. Detect Face (Far Model)
@@ -95,6 +150,17 @@ def get_eye_state(frame):
     # as it would be in the full ima    ge. We don't need to do any complex math projection.
     left_ear = calculate_ear(landmarks, LEFT_EYE)
     right_ear = calculate_ear(landmarks, RIGHT_EYE)
+
     
     avg_ear = (left_ear + right_ear) / 2.0
-    return avg_ear
+    # Note: For PnP, we strictly need pixel coords. 
+    # Since we are using the CROP, the "frame_w" is the crop width.
+    crop_h, crop_w, _ = cropped_frame.shape
+    pitch, yaw, roll = get_head_pose(landmarks, crop_w, crop_h)
+    
+    return {
+        "ear": avg_ear,
+        "pitch": pitch,
+        "yaw": yaw,
+        "roll": roll
+    }

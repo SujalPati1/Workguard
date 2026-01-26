@@ -4,7 +4,7 @@ import time
 import json
 import cv2
 import sys
-from sensors.camera import get_eye_state
+from sensors.camera import get_biometrics
 from filters import OneEuroFilter
 from calibration import CalibrationManager
 
@@ -24,6 +24,10 @@ cap = cv2.VideoCapture(0)
 # min_cutoff=0.01: Very smooth when sitting still
 # beta=20.0: Reacts INSTANTLY if you blink
 ear_filter = OneEuroFilter(min_cutoff=0.01, beta=20.0)
+pitch_filter = OneEuroFilter(min_cutoff=0.1, beta=10.0)
+yaw_filter = OneEuroFilter(min_cutoff=0.1, beta=10.0)
+roll_filter = OneEuroFilter(min_cutoff=0.1, beta=10.0)
+
 calibrator = CalibrationManager(calibration_frames=90)
 
 
@@ -39,43 +43,50 @@ while True:
         continue
 
     # 1. Get Raw Data
-    raw_ear = get_eye_state(frame)
+    raw_data = get_biometrics(frame)
     current_time = time.time()
+
+    data_out = {
+        "ear": 0, "pitch": 0, "yaw": 0, "roll": 0,
+        "status": "Absent", "calibration_progress": 0
+    }
     
     status = "Absent"
     smoothed_ear = 0.0
     progress = 0.0
     
-    if raw_ear is not None:
-        smoothed_ear = ear_filter.filter(raw_ear, current_time)
+    if raw_data is not None:
+        # 2. Filter ALL Signals
+        data_out["ear"] = round(ear_filter.filter(raw_data["ear"], current_time), 3)
+        data_out["pitch"] = round(pitch_filter.filter(raw_data["pitch"], current_time), 1)
+        data_out["yaw"] = round(yaw_filter.filter(raw_data["yaw"], current_time), 1)
+        data_out["roll"] = round(roll_filter.filter(raw_data["roll"], current_time), 1)
+        
+        # 3. Calibration & Status Logic (Same as before)
         if not calibrator.is_calibrated:
-            status = "Calibrating"
-            # Update Calibration
-            progress = calibrator.update(smoothed_ear)
-            # Send 'progress' so UI can show a loading bar
+            data_out["status"] = "Calibrating"
+            data_out["calibration_progress"] = round(calibrator.update(data_out["ear"]) * 100, 1)
         else:
-            # --- MONITORING MODE (Using Personalized Thresholds) ---
             thresholds = calibrator.get_thresholds()
-            
-            if smoothed_ear < thresholds["drowsy"]:
-                status = "Drowsy"
-            elif smoothed_ear < thresholds["blink"]:
-                status = "Blinking"
+            if data_out["ear"] < thresholds["drowsy"]:
+                data_out["status"] = "Drowsy"
             else:
-                status = "Focused"
-    else:
-        status = "Absent"
+                data_out["status"] = "Focused"
 
-    data = {
-        "type": "biometrics",
-        "ear": round(smoothed_ear, 3), 
-        "status": status,
-        "calibration_progress": round(progress * 100, 1),
-        "timestamp": time.time()
-    }
+            # 4. HEAD POSE CHECKS (Simple check for now)
+            # Yaw > 20 means looking Left/Right
+            # Pitch > 20 means looking Down
+            if abs(data_out["yaw"]) > 25:
+                data_out["status"] = "Distracted (Head Turn)"
+    
+    else:
+        data_out["status"] = "Absent"
+
+    data_out["type"] = "biometrics"
+    data_out["timestamp"] = current_time
 
     # DEBUG: Confirm we are sending
     # print("DEBUG: Sending ZMQ Message", flush=True) 
-    socket.send_string(json.dumps(data))
+    socket.send_string(json.dumps(data_out))
     
     time.sleep(0.03)
