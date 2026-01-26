@@ -24,12 +24,12 @@ cap = cv2.VideoCapture(0)
 # min_cutoff=0.01: Very smooth when sitting still
 # beta=20.0: Reacts INSTANTLY if you blink
 ear_filter = OneEuroFilter(min_cutoff=0.01, beta=20.0)
+mar_filter = OneEuroFilter(min_cutoff=0.01, beta=20.0)
 pitch_filter = OneEuroFilter(min_cutoff=0.1, beta=10.0)
 yaw_filter = OneEuroFilter(min_cutoff=0.1, beta=10.0)
 roll_filter = OneEuroFilter(min_cutoff=0.1, beta=10.0)
 
 calibrator = CalibrationManager(calibration_frames=90)
-
 
 # --- 2. THE LOOP ---
 
@@ -58,6 +58,7 @@ while True:
     if raw_data is not None:
         # 2. Filter ALL Signals
         data_out["ear"] = round(ear_filter.filter(raw_data["ear"], current_time), 3)
+        data_out["mar"] = round(mar_filter.filter(raw_data["mar"], current_time), 3)
         data_out["pitch"] = round(pitch_filter.filter(raw_data["pitch"], current_time), 1)
         data_out["yaw"] = round(yaw_filter.filter(raw_data["yaw"], current_time), 1)
         data_out["roll"] = round(roll_filter.filter(raw_data["roll"], current_time), 1)
