@@ -1,41 +1,49 @@
-// ui/src/hooks/useWorkGuardData.js
 import { useState, useEffect } from 'react';
 
-const { ipcRenderer } = window.require('electron'); 
-// Note: 'window.require' is a trick to use Electron in React
+const { ipcRenderer } = window.require('electron');
 
 export function useWorkGuardData() {
   const [status, setStatus] = useState("Waiting...");
   const [ear, setEar] = useState(0);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isYawning, setIsYawning] = useState(false);
   const [history, setHistory] = useState([]);
 
   useEffect(() => {
-    // Listen for data from Main Process
-    ipcRenderer.on('python-data', (event, dataString) => {
+    const handler = (event, dataString) => {
       try {
         const data = JSON.parse(dataString);
-        
+
         if (data.type === 'biometrics') {
-          setStatus(data.status);
-          setEar(data.ear);
-          
-          // Add to history graph (Keep last 50 points)
+          setStatus(data.status || "Unknown");
+          setEar(data.ear || 0);
+          setIsSpeaking(Boolean(data.is_speaking));
+          setIsYawning(Boolean(data.is_yawning));
+
+          // Maintain last 50 points
           setHistory(prev => {
-            const newHistory = [...prev, { time: new Date().toLocaleTimeString(), value: data.ear }];
+            const newHistory = [
+              ...prev,
+              {
+                time: new Date().toLocaleTimeString(),
+                value: data.ear || 0
+              }
+            ];
             if (newHistory.length > 50) newHistory.shift();
             return newHistory;
           });
         }
       } catch (e) {
-        console.error("Parse Error", e);
+        console.error("Parse Error:", e);
       }
-    });
+    };
 
-    // Cleanup listener on unmount
+    ipcRenderer.on('python-data', handler);
+
     return () => {
-      ipcRenderer.removeAllListeners('python-data');
+      ipcRenderer.removeListener('python-data', handler);
     };
   }, []);
 
-  return { status, ear, history };
+  return { status, ear, history, isSpeaking, isYawning };
 }

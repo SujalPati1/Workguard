@@ -5,6 +5,7 @@ import json
 import cv2
 import sys
 from sensors.camera import get_biometrics
+from models.voice_activity import VoiceActivityDetector
 from filters import OneEuroFilter
 from calibration import CalibrationManager
 
@@ -12,13 +13,19 @@ from calibration import CalibrationManager
 context = zmq.Context()
 socket = context.socket(zmq.PUB)
 socket.bind("tcp://127.0.0.1:5555")
+voice_detector = VoiceActivityDetector(buffer_size=60)
 
 print("PYTHON_ENGINE_STARTED")
 sys.stdout.flush()
 
 # DEBUG: Tell us we are trying to open the camera
 print("DEBUG: Attempting to open Webcam (Index 0)...", flush=True)
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+
+if not cap.isOpened():
+    print("ERROR: Camera failed to open!", flush=True)
+else:
+    print("SUCCESS: Camera opened!", flush=True)
 
 # Initialize the 1 Euro Filter
 # min_cutoff=0.01: Very smooth when sitting still
@@ -47,9 +54,17 @@ while True:
     current_time = time.time()
 
     data_out = {
-        "ear": 0, "pitch": 0, "yaw": 0, "roll": 0,
-        "status": "Absent", "calibration_progress": 0
+        "ear": 0,
+        "mar": 0,
+        "pitch": 0,
+        "yaw": 0,
+        "roll": 0,
+        "is_speaking": False,
+        "is_yawning": False,
+        "status": "Absent",
+        "calibration_progress": 0
     }
+
     
     status = "Absent"
     smoothed_ear = 0.0
@@ -59,6 +74,10 @@ while True:
         # 2. Filter ALL Signals
         data_out["ear"] = round(ear_filter.filter(raw_data["ear"], current_time), 3)
         data_out["mar"] = round(mar_filter.filter(raw_data["mar"], current_time), 3)
+        voice_result = voice_detector.update(data_out["mar"])
+
+        data_out["is_speaking"] = voice_result["is_speaking"]
+        data_out["is_yawning"] = voice_result["is_yawning"]
         data_out["pitch"] = round(pitch_filter.filter(raw_data["pitch"], current_time), 1)
         data_out["yaw"] = round(yaw_filter.filter(raw_data["yaw"], current_time), 1)
         data_out["roll"] = round(roll_filter.filter(raw_data["roll"], current_time), 1)
@@ -80,6 +99,7 @@ while True:
             if abs(data_out["yaw"]) > 25:
                 data_out["status"] = "Distracted (Head Turn)"
     
+        # print(voice_result)
     else:
         data_out["status"] = "Absent"
 
