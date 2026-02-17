@@ -15,7 +15,7 @@ class VoiceActivityDetector:
         self.speaking_hold_frames = 8   # keep speaking briefly after motion
         self.speaking_timer = 0
 
-        # --- yawning parameters (keep your working logic) ---
+        # --- yawning parameters  ---
         self.yawn_open_threshold = 0.42
         self.yawn_duration_frames = 12
         self.yawn_counter = 0
@@ -34,7 +34,7 @@ class VoiceActivityDetector:
 
         arr = np.array(self.buffer)
 
-        # ---------- YAWNING (unchanged logic) ----------
+        # ---------- YAWNING ----------
         if mar_value > self.yawn_open_threshold:
             self.yawn_counter += 1
         else:
@@ -42,8 +42,7 @@ class VoiceActivityDetector:
 
         is_yawning = self.yawn_counter >= self.yawn_duration_frames
 
-        # ---------- SPEAKING (NEW LOGIC) ----------
-        # use ONLY recent frames to avoid long delay
+        # ---------- SPEAKING  ----------
         recent = arr[-self.recent_window:]
 
         amplitude = recent.max() - recent.min()
