@@ -38,7 +38,7 @@ async function runZmqReceiver() {
   for await (const [msg] of sock) {
     const dataString = msg.toString();
     
-    // --- ADD THIS LINE TO SEE THE DATA IN TERMINAL ---
+    // --- ADD THIS LINE TO SEE THE DATA IN TERMINAL ---q
     console.log(`[ZMQ Received]: ${dataString}`); 
     // -------------------------------------------------
 
