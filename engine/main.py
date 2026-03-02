@@ -5,6 +5,7 @@ import json
 import cv2
 import sys
 from sensors.camera import get_biometrics
+from sensors.context_poller import WindowContextPoller
 from models.voice_activity import VoiceActivityDetector
 from filters import OneEuroFilter
 from calibration import CalibrationManager
@@ -37,6 +38,10 @@ yaw_filter = OneEuroFilter(min_cutoff=0.1, beta=10.0)
 roll_filter = OneEuroFilter(min_cutoff=0.1, beta=10.0)
 
 calibrator = CalibrationManager(calibration_frames=90)
+
+# Start context poller on its own daemon thread (1Hz, Windows-only)
+context_poller = WindowContextPoller(poll_interval=1.0)
+context_poller.start()
 
 # --- 2. THE LOOP ---
 
@@ -105,6 +110,7 @@ while True:
 
     data_out["type"] = "biometrics"
     data_out["timestamp"] = current_time
+    data_out["app_context"] = context_poller.get_current_state()
 
     # DEBUG: Confirm we are sending
     # print("DEBUG: Sending ZMQ Message", flush=True) 
