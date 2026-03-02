@@ -179,6 +179,8 @@ class WindowContextPoller:
     """
 
     def __init__(self, poll_interval: float = 1.0) -> None:
+        if poll_interval <= 0:
+            raise ValueError("poll_interval must be > 0")
         self._poll_interval = poll_interval
         self._lock = threading.Lock()
         self._state: dict = dict(_UNKNOWN_STATE)
