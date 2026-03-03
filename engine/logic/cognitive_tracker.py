@@ -141,7 +141,9 @@ class CognitiveTracker:
         current_category : str
             Raw category from context_poller (e.g. "Deep Work", "Comms").
         current_time : float
-            Monotonic epoch (time.time()) — injected for testability.
+            Monotonic timestamp from time.monotonic() — injected for
+            testability. Must use the same clock as get_metrics() so that
+            flow-duration and sliding-window arithmetic are consistent.
         """
         new_group = self._CATEGORY_TO_GROUP.get(current_category, "OTHER")
 
@@ -184,7 +186,7 @@ class CognitiveTracker:
             is_fragmented     bool  True when strain_score > FRAGMENTATION_THRESHOLD
             needs_break       bool  True when in Deep Work for > 90 minutes
         """
-        now = time.time()
+        now = time.monotonic()
         self._purge_stale(now)
 
         raw_strain = sum(e.weight for e in self._events)

@@ -117,7 +117,9 @@ while True:
 
     # Context & cognitive metrics
     app_context = context_poller.get_current_state()
-    cognitive_tracker.update(app_context.get("category", "Unknown"), current_time)
+    # Use time.monotonic() for the cognitive tracker — it only needs duration
+    # arithmetic and must not share the wall-clock value used by the 1 Euro filters.
+    cognitive_tracker.update(app_context.get("category", "Unknown"), time.monotonic())
     data_out["app_context"] = app_context
     data_out.update(cognitive_tracker.get_metrics())
 
