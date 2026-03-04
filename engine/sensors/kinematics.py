@@ -71,13 +71,16 @@ class KinematicSensor:
     # ------------------------------------------------------------------
 
     def start(self) -> None:
-        """Start keyboard and mouse listener threads. Safe to call multiple times."""
+        """
+        Start keyboard and mouse listener threads.
+
+        Safe to call multiple times: each listener is started independently,
+        so a dead or missing mouse listener will be restarted even when the
+        keyboard listener is still alive (and vice-versa).
+        """
         if not _PYNPUT_AVAILABLE:
             print("[KinematicSensor] pynput unavailable — sensor inactive.", flush=True)
             return
-
-        if self._kb_listener is not None and self._kb_listener.is_alive():
-            return  # already running
 
         # ── Privacy Firewall callbacks ────────────────────────────────────────
         # Each callback silently discards its arguments and records only a
@@ -108,21 +111,39 @@ class KinematicSensor:
             self._record_event()
 
         # ─────────────────────────────────────────────────────────────────────
+        # Check each listener independently so that a dead mouse listener is
+        # restarted even when the keyboard listener is still alive (and vice-versa).
+        try:
+            kb_alive = self._kb_listener is not None and self._kb_listener.is_alive()
+            mouse_alive = self._mouse_listener is not None and self._mouse_listener.is_alive()
 
-        self._kb_listener = keyboard.Listener(
-            on_press=on_press,
-            on_release=on_release,
-            daemon=True,
-        )
-        self._mouse_listener = pynput_mouse.Listener(
-            on_click=on_click,
-            on_move=on_move,
-            daemon=True,
-        )
+            if not kb_alive:
+                self._kb_listener = keyboard.Listener(
+                    on_press=on_press,
+                    on_release=on_release,
+                    daemon=True,
+                )
+                self._kb_listener.start()
 
-        self._kb_listener.start()
-        self._mouse_listener.start()
-        print("[KinematicSensor] Started.", flush=True)
+            if not mouse_alive:
+                self._mouse_listener = pynput_mouse.Listener(
+                    on_click=on_click,
+                    on_move=on_move,
+                    daemon=True,
+                )
+                self._mouse_listener.start()
+
+            if not kb_alive or not mouse_alive:
+                started = []
+                if not kb_alive:
+                    started.append("keyboard")
+                if not mouse_alive:
+                    started.append("mouse")
+                print(f"[KinematicSensor] Started ({', '.join(started)}).", flush=True)
+        except Exception as e:
+            self._kb_listener = None
+            self._mouse_listener = None
+            print(f"[KinematicSensor] Failed to start listeners: {e}", flush=True)
 
     def stop(self) -> None:
         """Stop both listeners gracefully. Safe to call if never started."""
@@ -140,6 +161,7 @@ class KinematicSensor:
         now = time.time()
         with self._lock:
             self._buffer.append(now)
+            self._trim_buffer(now)
 
     def _trim_buffer(self, now: float) -> None:
         """
