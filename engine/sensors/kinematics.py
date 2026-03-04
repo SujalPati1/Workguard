@@ -113,10 +113,15 @@ class KinematicSensor:
         # ─────────────────────────────────────────────────────────────────────
         # Check each listener independently so that a dead mouse listener is
         # restarted even when the keyboard listener is still alive (and vice-versa).
-        try:
-            kb_alive = self._kb_listener is not None and self._kb_listener.is_alive()
-            mouse_alive = self._mouse_listener is not None and self._mouse_listener.is_alive()
+        kb_alive = self._kb_listener is not None and self._kb_listener.is_alive()
+        mouse_alive = self._mouse_listener is not None and self._mouse_listener.is_alive()
 
+        # Local flags track only what *this* call started, so the except block
+        # can clean up precisely without touching listeners that were already
+        # running before this attempt.
+        kb_started = False
+        mouse_started = False
+        try:
             if not kb_alive:
                 self._kb_listener = keyboard.Listener(
                     on_press=on_press,
@@ -124,6 +129,7 @@ class KinematicSensor:
                     daemon=True,
                 )
                 self._kb_listener.start()
+                kb_started = True
 
             if not mouse_alive:
                 self._mouse_listener = pynput_mouse.Listener(
@@ -132,17 +138,24 @@ class KinematicSensor:
                     daemon=True,
                 )
                 self._mouse_listener.start()
+                mouse_started = True
 
-            if not kb_alive or not mouse_alive:
+            if kb_started or mouse_started:
                 started = []
-                if not kb_alive:
+                if kb_started:
                     started.append("keyboard")
-                if not mouse_alive:
+                if mouse_started:
                     started.append("mouse")
                 print(f"[KinematicSensor] Started ({', '.join(started)}).", flush=True)
         except Exception as e:
-            self._kb_listener = None
-            self._mouse_listener = None
+            # Only stop/clear listeners that *this attempt* started.
+            # Listeners that were already alive before this call are left untouched.
+            if kb_started:
+                self._kb_listener.stop()
+                self._kb_listener = None
+            if mouse_started:
+                self._mouse_listener.stop()
+                self._mouse_listener = None
             print(f"[KinematicSensor] Failed to start listeners: {e}", flush=True)
 
     def stop(self) -> None:
