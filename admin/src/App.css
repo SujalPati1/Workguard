@@ -1,0 +1,155 @@
+.admin-app {
+  font-family: "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  max-width: 1100px;
+  margin: 20px auto;
+  padding: 20px;
+  background: #f1f4f8;
+  border-radius: 16px;
+  box-shadow: 0 18px 42px rgba(20, 30, 41, 0.12);
+}
+
+.admin-app h1 {
+  margin-bottom: 16px;
+  color: #102a43;
+  font-size: 28px;
+}
+
+.stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.stat-card {
+  background: #ffffff;
+  padding: 14px 18px;
+  border-radius: 10px;
+  border: 1px solid #dbe4ef;
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+
+.stat-card span {
+  display: block;
+  color: #627d98;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+.stat-card strong {
+  font-size: 20px;
+  color: #243b53;
+}
+
+.refresh-btn {
+  margin-left: auto;
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: 1px solid #38a169;
+  background: #2f855a;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.refresh-btn:hover {
+  background: #276749;
+}
+
+.panel-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.employee-form,
+.employee-list {
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #dbe4ef;
+  padding: 18px;
+}
+
+.employee-form label {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 14px;
+  font-weight: 500;
+  color: #334e68;
+}
+
+.employee-form input {
+  height: 38px;
+  padding: 8px 10px;
+  border: 1px solid #b8c2cc;
+  border-radius: 8px;
+  margin-top: 6px;
+  font-size: 0.95rem;
+}
+
+.employee-form button {
+  width: 100%;
+  padding: 12px 16px;
+  background: #1d4ed8;
+  color: white;
+  border-radius: 8px;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.employee-form button:hover {
+  background: #1e40af;
+}
+
+.message {
+  margin: 16px 0;
+  padding: 12px 14px;
+  background: #e2e8f0;
+  border: 1px solid #bcccdc;
+  border-radius: 8px;
+  color: #1f2937;
+  font-size: 0.95rem;
+}
+
+.employee-list h2 {
+  margin-bottom: 14px;
+  color: #1e293b;
+}
+
+.employee-list table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.employee-list th,
+.employee-list td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.employee-list th {
+  text-align: left;
+  color: #102a43;
+  font-weight: 600;
+  background: #f8fafc;
+}
+
+.employee-list tbody tr:hover {
+  background: #f1f5f9;
+}
+
+@media (max-width: 960px) {
+  .panel-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .refresh-btn {
+    width: 100%;
+  }
+}
+
