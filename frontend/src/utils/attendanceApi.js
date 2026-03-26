@@ -1,6 +1,5 @@
 const BASE = import.meta.env.VITE_API_URL + "/attendance";
 
-
 const request = async (url, options = {}) => {
   try {
     const res = await fetch(url, {
@@ -44,5 +43,8 @@ export const stopSessionApi = (payload) =>
     body: JSON.stringify(payload),
   });
 
-export const getSummaryApi = (empId) =>
-  request(`${BASE}/summary/${empId}`);
+export const getTodayReportApi = (empId) =>
+  request(`${BASE}/report/today/${empId}`);
+
+export const getSessionApi = (sessionId) =>
+  request(`${BASE}/${sessionId}`);

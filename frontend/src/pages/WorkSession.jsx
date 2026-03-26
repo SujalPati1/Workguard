@@ -19,40 +19,37 @@ const formatTime = (sec) => {
 };
 
 const WorkSession = () => {
-  const { employee } = useSession();
+  const { employee, workSessionState, updateWorkSession, incrementActiveTime, incrementIdleTime, incrementWaitingTime, incrementBreakTime, setWorkStatus: setWorkStatusCtx } = useSession();
 
-  // ===== STATES =====
-  const [running, setRunning] = useState(false);
-  const [sessionId, setSessionId] = useState(null);
-
-  const [activeSec, setActiveSec] = useState(0);
-  const [idleSec, setIdleSec] = useState(0);
-  const [waitingSec, setWaitingSec] = useState(0);
-  const [breakSec, setBreakSec] = useState(0);
-
-  const [focusMode, setFocusMode] = useState(false);
-  const [workStatus, setWorkStatus] = useState("WORKING");
+  // Destructure from context (persistent across page navigation)
+  const running = workSessionState.running;
+  const sessionId = workSessionState.sessionId;
+  const activeSec = workSessionState.activeSec;
+  const idleSec = workSessionState.idleSec;
+  const waitingSec = workSessionState.waitingSec;
+  const breakSec = workSessionState.breakSec;
+  const focusMode = workSessionState.focusMode;
+  const workStatus = workSessionState.workStatus;
 
   const lastActivityRef = useRef(Date.now());
 
-  // ===== SMILE ASSISTANT =====
-const [showJoke, setShowJoke] = useState(false);
-const [currentJoke, setCurrentJoke] = useState("");
-const [pulseSmile, setPulseSmile] = useState(false);
-const jokeShownRef = useRef(false);
+  // ===== LOCAL STATES (UI only) =====
+  const [showJoke, setShowJoke] = useState(false);
+  const [currentJoke, setCurrentJoke] = useState("");
+  const [pulseSmile, setPulseSmile] = useState(false);
+  const jokeShownRef = useRef(false);
 
 const jokes = [
-  "Why do developers love coffee? Because Java ☕",
-  "Your code works? Don’t touch it 😄",
-  "Small breaks prevent big breakdowns 😊",
-  "Debugging: Being the detective in a crime movie where you are also the criminal 😅",
-  "Hydrate. Stretch. Smile. Repeat 💧",
-  "I don’t rise and shine. I caffeinate and hope ☕",
-"Life is short. Smile while you still have teeth 😁",
-"I don’t need a motivational quote. I need snacks 🍫",
-"Brain: Let’s be productive. Also brain: Let’s watch random videos."
-
-];
+    "Why do developers love coffee? Because Java ☕",
+    "Your code works? Don't touch it 😄",
+    "Small breaks prevent big breakdowns 😊",
+    "Debugging: Being the detective in a crime movie where you are also the criminal 😅",
+    "Hydrate. Stretch. Smile. Repeat 💧",
+    "I don't rise and shine. I caffeinate and hope ☕",
+    "Life is short. Smile while you still have teeth 😁",
+    "I don't need a motivational quote. I need snacks 🍫",
+    "Brain: Let's be productive. Also brain: Let's watch random videos.",
+  ];
 
   // ===== IDLE THRESHOLD =====
   const idleThresholdSec = useMemo(() => {
@@ -76,7 +73,7 @@ const jokes = [
     };
   }, []);
 
-  // ===== TIMER ENGINE =====
+  // ===== TIMER ENGINE (Persists across page navigation) =====
   useEffect(() => {
     if (!running) return;
 
@@ -84,24 +81,24 @@ const jokes = [
       const idleNow = (Date.now() - lastActivityRef.current) / 1000;
 
       if (workStatus === "WAITING") {
-        setWaitingSec((p) => p + 1);
+        incrementWaitingTime();
         return;
       }
 
       if (workStatus === "BREAK") {
-        setBreakSec((p) => p + 1);
+        incrementBreakTime();
         return;
       }
 
       if (idleNow > idleThresholdSec) {
-        setIdleSec((p) => p + 1);
+        incrementIdleTime();
       } else {
-        setActiveSec((p) => p + 1);
+        incrementActiveTime();
       }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [running, workStatus, idleThresholdSec]);
+  }, [running, workStatus, idleThresholdSec, incrementActiveTime, incrementIdleTime, incrementWaitingTime, incrementBreakTime]);
 
   const totalTime = activeSec + idleSec + waitingSec + breakSec;
 
@@ -149,8 +146,10 @@ useEffect(() => {
     });
 
     if (res?.session?._id) {
-      setSessionId(res.session._id);
-      setRunning(true);
+      updateWorkSession({
+        sessionId: res.session._id,
+        running: true,
+      });
     }
   };
 
@@ -165,61 +164,66 @@ useEffect(() => {
     if (res?.session?._id) {
       const s = res.session;
 
-      setSessionId(s._id);
-      setRunning(true);
-
-      setActiveSec(s.activeSeconds || 0);
-      setIdleSec(s.idleSeconds || 0);
-      setWaitingSec(s.waitingSeconds || 0);
-      setBreakSec(s.breakSeconds || 0);
-      setFocusMode(!!s.focusMode);
-      setWorkStatus(s.workStatus || "WORKING");
+      updateWorkSession({
+        sessionId: s._id,
+        running: true,
+        activeSec: s.activeSeconds || 0,
+        idleSec: s.idleSeconds || 0,
+        waitingSec: s.waitingSeconds || 0,
+        breakSec: s.breakSeconds || 0,
+        focusMode: !!s.focusMode,
+        workStatus: s.workStatus || "WORKING",
+      });
     }
-    
   };
 
   const handleStop = async () => {
-  if (!sessionId) return;
+    if (!sessionId) return;
 
-  const confirmStop = window.confirm(
-    "Do you really want to end this session?"
-  );
+    const confirmStop = window.confirm("Do you really want to end this session?");
+    if (!confirmStop) return;
 
-  if (!confirmStop) return;
+    // Stop timer immediately
+    updateWorkSession({ running: false });
 
-  // 🚀 STOP TIMER IMMEDIATELY
-  setRunning(false);
+    try {
+      await stopSessionApi({
+        sessionId,
+        activeSeconds: activeSec,
+        idleSeconds: idleSec,
+        waitingSeconds: waitingSec,
+        breakSeconds: breakSec,
+      });
 
-  try {
-    await stopSessionApi({ sessionId });
+      // Clear session state
+      updateWorkSession({
+        running: false,
+        sessionId: null,
+        activeSec: 0,
+        idleSec: 0,
+        waitingSec: 0,
+        breakSec: 0,
+        focusMode: false,
+        workStatus: "WORKING",
+      });
 
-    setSessionId(null);
-
-    // Optional reset UI
-    setActiveSec(0);
-    setIdleSec(0);
-    setWaitingSec(0);
-    setBreakSec(0);
-
-    // 👉 Redirect to Summary page
-    window.location.href = "/attendance-summary";
-
-  } catch (err) {
-    console.error("Stop session failed", err);
-  }
-}; 
+      // Redirect to Summary page
+      window.location.href = "/attendance-summary";
+    } catch (err) {
+      console.error("Stop session failed", err);
+    }
+  };
   const generateJoke = () => {
-  const random = jokes[Math.floor(Math.random() * jokes.length)];
-  setCurrentJoke(random);
-  setShowJoke(true);
-  setPulseSmile(false);
-  jokeShownRef.current = true;
+    const random = jokes[Math.floor(Math.random() * jokes.length)];
+    setCurrentJoke(random);
+    setShowJoke(true);
+    setPulseSmile(false);
+    jokeShownRef.current = true;
 
-  setTimeout(() => {
-    setShowJoke(false);
-  }, 8000);
-
-};
+    setTimeout(() => {
+      setShowJoke(false);
+    }, 8000);
+  };
 
 
   return (
@@ -280,7 +284,7 @@ useEffect(() => {
 
             <ToggleSwitch
               isOn={focusMode}
-              onToggle={() => setFocusMode((p) => !p)}
+              onToggle={() => updateWorkSession({ focusMode: !focusMode })}
             />
 
             <div className="ws-info">
@@ -308,7 +312,7 @@ useEffect(() => {
       className={`ws-status-pill ${
         workStatus === item.value ? "active" : ""
       }`}
-      onClick={() => setWorkStatus(item.value)}
+      onClick={() => setWorkStatusCtx(item.value)}
     >
       <span>{item.icon}</span>
       <b>{item.label}</b>
@@ -370,10 +374,12 @@ useEffect(() => {
           <button
             className="btn ghost"
             onClick={() => {
-              setActiveSec(0);
-              setIdleSec(0);
-              setWaitingSec(0);
-              setBreakSec(0);
+              updateWorkSession({
+                activeSec: 0,
+                idleSec: 0,
+                waitingSec: 0,
+                breakSec: 0,
+              });
             }}
           >
             ↺ Reset Display

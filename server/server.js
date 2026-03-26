@@ -31,7 +31,8 @@ mongoose.connect(process.env.MONGO_URI)
 // Routes
 app.use(require("./routes/authRoutes"));
 app.use(require("./routes/consentRoutes"));
-app.use(require("./routes/attendanceRoutes"));
+app.use("/attendance", require("./routes/session.routes"));
+app.use("/api/sessions", require("./routes/session.routes"));
 
 // Health check
 app.get("/health", (req, res) => {

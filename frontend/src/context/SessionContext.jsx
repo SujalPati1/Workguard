@@ -24,6 +24,119 @@ export const SessionProvider = ({ children }) => {
 
   const [isLoading, setIsLoading] = useState(false);
 
+  // ===== WORK SESSION STATE =====
+  // Load from localStorage to persist across page navigation
+  const [workSessionState, setWorkSessionState] = useState(() => {
+    try {
+      const saved = localStorage.getItem("wg_workSession");
+      return saved ? JSON.parse(saved) : {
+        running: false,
+        sessionId: null,
+        activeSec: 0,
+        idleSec: 0,
+        waitingSec: 0,
+        breakSec: 0,
+        focusMode: false,
+        workStatus: "WORKING",
+        startTime: null,
+      };
+    } catch (err) {
+      console.error("Error loading work session from storage:", err);
+      return {
+        running: false,
+        sessionId: null,
+        activeSec: 0,
+        idleSec: 0,
+        waitingSec: 0,
+        breakSec: 0,
+        focusMode: false,
+        workStatus: "WORKING",
+        startTime: null,
+      };
+    }
+  });
+
+  // ===== PERSIST WORK SESSION TO LOCALSTORAGE =====
+  useEffect(() => {
+    localStorage.setItem("wg_workSession", JSON.stringify(workSessionState));
+  }, [workSessionState]);
+
+  // ===== WORK SESSION METHODS =====
+  const updateWorkSession = useCallback((updates) => {
+    setWorkSessionState((prev) => ({
+      ...prev,
+      ...updates,
+    }));
+  }, []);
+
+  const startWorkSession = useCallback((sessionId, focusMode = false) => {
+    updateWorkSession({
+      running: true,
+      sessionId,
+      focusMode,
+      startTime: Date.now(),
+      activeSec: 0,
+      idleSec: 0,
+      waitingSec: 0,
+      breakSec: 0,
+      workStatus: "WORKING",
+    });
+  }, [updateWorkSession]);
+
+  const pauseWorkSession = useCallback(() => {
+    updateWorkSession({ running: false });
+  }, [updateWorkSession]);
+
+  const resumeWorkSession = useCallback(() => {
+    updateWorkSession({ running: true });
+  }, [updateWorkSession]);
+
+  const stopWorkSession = useCallback(() => {
+    updateWorkSession({
+      running: false,
+      sessionId: null,
+      activeSec: 0,
+      idleSec: 0,
+      waitingSec: 0,
+      breakSec: 0,
+      focusMode: false,
+      workStatus: "WORKING",
+      startTime: null,
+    });
+  }, [updateWorkSession]);
+
+  const incrementActiveTime = useCallback(() => {
+    setWorkSessionState((prev) => ({
+      ...prev,
+      activeSec: prev.activeSec + 1,
+    }));
+  }, []);
+
+  const incrementIdleTime = useCallback(() => {
+    setWorkSessionState((prev) => ({
+      ...prev,
+      idleSec: prev.idleSec + 1,
+    }));
+  }, []);
+
+  const incrementWaitingTime = useCallback(() => {
+    setWorkSessionState((prev) => ({
+      ...prev,
+      waitingSec: prev.waitingSec + 1,
+    }));  
+  }, []);
+
+  const incrementBreakTime = useCallback(() => {
+    setWorkSessionState((prev) => ({
+      ...prev,
+      breakSec: prev.breakSec + 1,
+    }));
+  }, []);
+
+  const setWorkStatus = useCallback((status) => {
+    updateWorkSession({ workStatus: status });
+  }, [updateWorkSession]);
+
   // Login - store tokens and employee data
   const login = useCallback((empData, accessTok, refreshTok) => {
     setEmployee(empData);
@@ -36,7 +149,7 @@ export const SessionProvider = ({ children }) => {
     localStorage.setItem("wg_refreshToken", refreshTok);
   }, []);
 
-  // Logout - clear all tokens and employee data
+  // Logout - clear all tokens, employee data, and work session
   const logout = useCallback(async () => {
     if (accessToken) {
       try {
@@ -50,10 +163,24 @@ export const SessionProvider = ({ children }) => {
     setAccessToken(null);
     setRefreshToken(null);
 
+    // Clear work session
+    setWorkSessionState({
+      running: false,
+      sessionId: null,
+      activeSec: 0,
+      idleSec: 0,
+      waitingSec: 0,
+      breakSec: 0,
+      focusMode: false,
+      workStatus: "WORKING",
+      startTime: null,
+    });
+
     // Clear from localStorage
     localStorage.removeItem("wg_employee");
     localStorage.removeItem("wg_accessToken");
     localStorage.removeItem("wg_refreshToken");
+    localStorage.removeItem("wg_workSession");
   }, [accessToken]);
 
   // Refresh access token
@@ -144,6 +271,7 @@ export const SessionProvider = ({ children }) => {
   return (
     <SessionContext.Provider
       value={{
+        // Auth state
         employee,
         accessToken,
         refreshToken,
@@ -152,6 +280,19 @@ export const SessionProvider = ({ children }) => {
         logout,
         refreshAccessToken: refreshAccessTokenFn,
         isAuthenticated: !!employee && !!accessToken,
+
+        // Work session state
+        workSessionState,
+        updateWorkSession,
+        startWorkSession,
+        pauseWorkSession,
+        resumeWorkSession,
+        stopWorkSession,
+        incrementActiveTime,
+        incrementIdleTime,
+        incrementWaitingTime,
+        incrementBreakTime,
+        setWorkStatus,
       }}
     >
       {children}

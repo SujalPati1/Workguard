@@ -1,16 +1,33 @@
 import React, { useEffect, useState } from "react";
 import { useSession } from "../context/SessionContext";
-import { getSummaryApi } from "../utils/attendanceApi";
+import { getTodayReportApi } from "../utils/attendanceApi";
+
+const formatTime = (sec) => {
+  const h = String(Math.floor(sec / 3600)).padStart(2, "0");
+  const m = String(Math.floor((sec % 3600) / 60)).padStart(2, "0");
+  const s = String(sec % 60).padStart(2, "0");
+  return `${h}:${m}:${s}`;
+};
 
 const AttendanceSummary = () => {
   const { employee } = useSession();
   const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     const load = async () => {
-      if (!employee?.empId) return;
-      const res = await getSummaryApi(employee.empId);
-      setData(res);
+      try {
+        if (!employee?.empId) return;
+        const res = await getTodayReportApi(employee.empId);
+        setData(res);
+        setError(null);
+      } catch (err) {
+        console.error("Failed to load summary:", err);
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
     };
     load();
   }, [employee]);
