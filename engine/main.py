@@ -6,6 +6,7 @@ import cv2
 import sys
 from sensors.camera import get_biometrics
 from sensors.context_poller import WindowContextPoller
+from sensors.kinematics import KinematicSensor
 from models.voice_activity import VoiceActivityDetector
 from filters import OneEuroFilter
 from calibration import CalibrationManager
@@ -43,6 +44,10 @@ calibrator = CalibrationManager(calibration_frames=90)
 # Start context poller on its own daemon thread (1Hz, Windows-only)
 context_poller = WindowContextPoller(poll_interval=1.0)
 context_poller.start()
+
+# Kinematic Input Entropy Sensor (keyboard + mouse rhythm telemetry)
+kinematic_sensor = KinematicSensor()
+kinematic_sensor.start()
 
 # Cognitive strain & flow tracker
 cognitive_tracker = CognitiveTracker()
@@ -122,6 +127,9 @@ while True:
     cognitive_tracker.update(app_context.get("category", "Unknown"), time.monotonic())
     data_out["app_context"] = app_context
     data_out.update(cognitive_tracker.get_metrics())
+
+    # Neuromotor entropy — keyboard/mouse rhythm telemetry (privacy-safe)
+    data_out["kinematic"] = kinematic_sensor.get_metrics()
 
     # DEBUG: Confirm we are sending
     # print("DEBUG: Sending ZMQ Message", flush=True) 
