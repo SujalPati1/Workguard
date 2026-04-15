@@ -6,6 +6,7 @@ import cv2
 import sys
 from sensors.camera import get_biometrics
 from sensors.context_poller import WindowContextPoller
+from sensors.kinematics import KinematicSensor
 from models.voice_activity import VoiceActivityDetector
 from models.liveness import LivenessEngine          # ← moved to models/
 from filters import OneEuroFilter
@@ -54,6 +55,10 @@ _ABSENT_RESET_FRAMES = 30   # ~1 s at 30 fps → reset liveness if face gone
 # Start context poller on its own daemon thread (1 Hz, Windows-only)
 context_poller = WindowContextPoller(poll_interval=1.0)
 context_poller.start()
+
+# Kinematic Input Entropy Sensor (keyboard + mouse rhythm telemetry)
+kinematic_sensor = KinematicSensor()
+kinematic_sensor.start()
 
 # Cognitive strain & flow tracker
 cognitive_tracker = CognitiveTracker()
@@ -187,6 +192,11 @@ while True:
     data_out["app_context"] = app_context
     data_out.update(cognitive_tracker.get_metrics())
 
+    # Neuromotor entropy — keyboard/mouse rhythm telemetry (privacy-safe)
+    data_out["kinematic"] = kinematic_sensor.get_metrics()
+
+    # DEBUG: Confirm we are sending
+    # print("DEBUG: Sending ZMQ Message", flush=True) 
     socket.send_string(json.dumps(data_out))
 
     time.sleep(0.03)
