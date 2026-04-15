@@ -1,6 +1,6 @@
 # engine/sensors/pipeline.py
 import cv2
-import mediapipe as mp
+import mediapipe as mp  
 import numpy as np
 
 class FacePipeline:
