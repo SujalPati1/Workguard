@@ -37,6 +37,7 @@ const WorkSession = () => {
   const [showJoke, setShowJoke] = useState(false);
   const [currentJoke, setCurrentJoke] = useState("");
   const [pulseSmile, setPulseSmile] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
   const jokeShownRef = useRef(false);
 
 const jokes = [
@@ -139,17 +140,37 @@ useEffect(() => {
   const handleStart = async () => {
     if (!employee?.empId) return;
 
-    const res = await startSessionApi({
-      empId: employee.empId,
-      focusMode,
-      workStatus,
-    });
-
-    if (res?.session?._id) {
-      updateWorkSession({
-        sessionId: res.session._id,
-        running: true,
+    try {
+      const res = await startSessionApi({
+        empId: employee.empId,
+        focusMode,
+        workStatus,
       });
+
+      if (res?.session?._id) {
+        updateWorkSession({
+          sessionId: res.session._id,
+          running: true,
+        });
+        setStatusMessage("");
+      }
+    } catch (err) {
+      if (err.body?.session?._id) {
+        const s = err.body.session;
+        updateWorkSession({
+          sessionId: s._id,
+          running: true,
+          activeSec: s.activeTime || 0,
+          idleSec: s.idleTime || 0,
+          waitingSec: s.waitingTime || 0,
+          breakSec: s.breakTime || 0,
+          focusMode: !!s.focusMode,
+          workStatus: s.workStatus || "WORKING",
+          startTime: s.startTime ? new Date(s.startTime).getTime() : Date.now(),
+        });
+      } else {
+        console.error("Start session failed", err);
+      }
     }
   };
 
@@ -167,15 +188,50 @@ useEffect(() => {
       updateWorkSession({
         sessionId: s._id,
         running: true,
-        activeSec: s.activeSeconds || 0,
-        idleSec: s.idleSeconds || 0,
-        waitingSec: s.waitingSeconds || 0,
-        breakSec: s.breakSeconds || 0,
+        activeSec: s.activeTime || 0,
+        idleSec: s.idleTime || 0,
+        waitingSec: s.waitingTime || 0,
+        breakSec: s.breakTime || 0,
         focusMode: !!s.focusMode,
         workStatus: s.workStatus || "WORKING",
+        startTime: s.startTime ? new Date(s.startTime).getTime() : Date.now(),
       });
+      setStatusMessage("");
     }
   };
+
+  useEffect(() => {
+    if (!employee?.empId || running || sessionId) return;
+
+    const restoreSession = async () => {
+      try {
+        const res = await resumeSessionApi({ empId: employee.empId });
+        if (res?.session?._id) {
+          const s = res.session;
+          updateWorkSession({
+            sessionId: s._id,
+            running: true,
+            activeSec: s.activeTime || 0,
+            idleSec: s.idleTime || 0,
+            waitingSec: s.waitingTime || 0,
+            breakSec: s.breakTime || 0,
+            focusMode: !!s.focusMode,
+            workStatus: s.workStatus || "WORKING",
+            startTime: s.startTime ? new Date(s.startTime).getTime() : Date.now(),
+          });
+        }
+      } catch (err) {
+        if (err.status === 404) {
+          setStatusMessage("No active session found. Start a new session to begin tracking.");
+        } else {
+          setStatusMessage("Unable to restore session right now.");
+          console.error("Restore session failed", err);
+        }
+      }
+    };
+
+    restoreSession();
+  }, [employee?.empId, running, sessionId, updateWorkSession]);
 
   const handleStop = async () => {
     if (!sessionId) return;
@@ -253,6 +309,21 @@ useEffect(() => {
             </span>
           </div>
         </div>
+
+        {statusMessage && (
+          <div
+            style={{
+              margin: "1rem 0",
+              padding: "0.9rem 1rem",
+              borderRadius: "14px",
+              background: "#f7f3e9",
+              color: "#6a4f1d",
+              border: "1px solid #f0d8a7",
+            }}
+          >
+            {statusMessage}
+          </div>
+        )}
 
         {/* HERO TIMER */}
         <div className="ws-hero">
@@ -359,7 +430,7 @@ useEffect(() => {
 
         {/* Actions */}
         <div className="ws-actions">
-          <button className="btn primary" onClick={handleStart}>
+          <button className="btn primary" onClick={handleStart} disabled={running}>
             ▶ Start Session
           </button>
           <button className="btn" onClick={handleResume}>

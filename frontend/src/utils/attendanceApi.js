@@ -8,11 +8,15 @@ const request = async (url, options = {}) => {
       ...options,
     });
 
+    const body = await res.json().catch(() => null);
     if (!res.ok) {
-      throw new Error(`API Error: ${res.status}`);
+      const error = new Error(body?.message || `API Error: ${res.status}`);
+      error.status = res.status;
+      error.body = body;
+      throw error;
     }
 
-    return await res.json();
+    return body;
   } catch (error) {
     console.error("Attendance API error:", error.message);
     throw error;

@@ -1,6 +1,36 @@
 const Session = require("../models/Session.model");
 const Consent = require("../models/Consent");
 
+const isSessionStale = (session) => {
+  if (!session || !session.startTime) return false;
+  const now = new Date();
+  const start = new Date(session.startTime);
+  return (
+    start.getFullYear() !== now.getFullYear() ||
+    start.getMonth() !== now.getMonth() ||
+    start.getDate() !== now.getDate()
+  );
+};
+
+const completeStaleSession = async (session) => {
+  const start = new Date(session.startTime);
+  const midnight = new Date(start);
+  midnight.setHours(0, 0, 0, 0, 0);
+  const endOfDay = new Date(midnight.getTime() + 24 * 60 * 60 * 1000);
+
+  session.endTime = endOfDay;
+  session.totalDuration = Math.floor((endOfDay.getTime() - start.getTime()) / 1000);
+
+  let result = "ABSENT";
+  if ((session.activeTime || 0) >= 120) result = "PRESENT";
+  else if ((session.activeTime || 0) >= 60) result = "PARTIAL";
+
+  session.attendanceResult = result;
+  session.attendanceStatus = "COMPLETED";
+  await session.save();
+  return session;
+};
+
 // ✅ START SESSION
 const startSession = async (req, res) => {
   try {
@@ -23,13 +53,17 @@ const startSession = async (req, res) => {
     const existing = await Session.findOne({
       empId,
       attendanceStatus: "IN_PROGRESS",
-    });
+    }).sort({ createdAt: -1 });
 
     if (existing) {
-      return res.status(400).json({
-        message: "⚠️ Session already running",
-        session: existing,
-      });
+      if (isSessionStale(existing)) {
+        await completeStaleSession(existing);
+      } else {
+        return res.status(400).json({
+          message: "⚠️ Session already running",
+          session: existing,
+        });
+      }
     }
 
     const newSession = await Session.create({
@@ -117,6 +151,11 @@ const resumeSession = async (req, res) => {
     }).sort({ createdAt: -1 });
 
     if (!session) {
+      return res.status(404).json({ message: "No paused/in-progress session found" });
+    }
+
+    if (isSessionStale(session)) {
+      await completeStaleSession(session);
       return res.status(404).json({ message: "No paused/in-progress session found" });
     }
 
