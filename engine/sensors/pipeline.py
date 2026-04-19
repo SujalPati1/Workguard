@@ -11,17 +11,21 @@ class FacePipeline:
             min_detection_confidence=0.5
         )
         # 2. The Analyst (Mesh)
+        # FIX: static_image_mode=False enables frame-to-frame temporal tracking.
+        # True was a critical bug — it forced re-detection from scratch every frame,
+        # increasing CPU usage and producing jittery values with no smoothing.
         self.face_mesh = mp.solutions.face_mesh.FaceMesh(
             max_num_faces=1,
             refine_landmarks=True,
-            static_image_mode=True, 
-            min_detection_confidence=0.5
+            static_image_mode=False,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
         )
 
     def process(self, frame):
         """
         Runs the Zoom Pipeline.
-        Returns: (landmarks, crop_width, crop_height) OR None
+        Returns: (landmarks, crop_width, crop_height, full_width, full_height) OR None
         """
         h, w, _ = frame.shape
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -53,9 +57,12 @@ class FacePipeline:
         if not mesh_results.multi_face_landmarks:
             return None
 
-        # Return the critical data needed for Math
+        # Return landmarks + crop dims (for 2D pixel math) + full frame dims
+        # (for correct camera matrix focal length in head pose estimation)
         return (
-            mesh_results.multi_face_landmarks[0].landmark, 
-            cropped_frame.shape[1], # Crop Width
-            cropped_frame.shape[0]  # Crop Height
+            mesh_results.multi_face_landmarks[0].landmark,
+            cropped_frame.shape[1],  # Crop Width
+            cropped_frame.shape[0],  # Crop Height
+            w,                        # Full frame Width
+            h,                        # Full frame Height
         )

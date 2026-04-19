@@ -38,6 +38,7 @@ async function runZmqReceiver() {
   for await (const [msg] of sock) {
     const dataString = msg.toString();
     
+    // --- ADD THIS LINE TO SEE THE DATA IN TERMINAL ---q
     console.log(`[ZMQ Received]: ${dataString}`); 
     // -------------------------------------------------
 
@@ -71,4 +72,19 @@ app.whenReady().then(() => {
 // Cleanup on Exit
 app.on('will-quit', () => {
   if (pythonProcess) pythonProcess.kill();
+});
+
+// Quit when all windows are closed (standard on Windows & Linux).
+// On macOS apps conventionally stay until the user quits explicitly.
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+
+// On macOS: re-create the window if the dock icon is clicked and no windows are open.
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+  }
 });

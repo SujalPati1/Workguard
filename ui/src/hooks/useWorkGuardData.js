@@ -4,15 +4,15 @@ const { ipcRenderer } = window.require('electron');
 
 export function useWorkGuardData() {
   // ── Core status ──────────────────────────────────────────────────────────
-  const [status, setStatus]                       = useState("Waiting...");
+  const [status, setStatus]                           = useState("Waiting...");
   const [calibrationProgress, setCalibrationProgress] = useState(0);
 
   // ── Biometrics ───────────────────────────────────────────────────────────
-  const [ear, setEar]           = useState(0);
-  const [mar, setMar]           = useState(0);
-  const [pitch, setPitch]       = useState(0);
-  const [yaw, setYaw]           = useState(0);
-  const [roll, setRoll]         = useState(0);
+  const [ear, setEar]     = useState(0);
+  const [mar, setMar]     = useState(0);
+  const [pitch, setPitch] = useState(0);
+  const [yaw, setYaw]     = useState(0);
+  const [roll, setRoll]   = useState(0);
 
   // ── Voice activity ───────────────────────────────────────────────────────
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -21,21 +21,19 @@ export function useWorkGuardData() {
   // ── Liveness ─────────────────────────────────────────────────────────────
   const [isLive, setIsLive]               = useState(false);
   const [livenessScore, setLivenessScore] = useState(0);
-  // "Pending" | "Calibrating" | "Warming Up" | "Checking" | "Live"
   const [livenessStatus, setLivenessStatus] = useState("Pending");
 
   // ── Context & cognitive ──────────────────────────────────────────────────
-  const [appContext, setAppContext]         = useState({});
+  const [appContext, setAppContext]           = useState({});
   const [cognitiveMetrics, setCognitiveMetrics] = useState({});
 
-  // ── EAR history for chart ────────────────────────────────────────────────
+  // ── Dual-chart history (EAR + MAR, last 60 samples) ──────────────────────
   const [history, setHistory] = useState([]);
 
   useEffect(() => {
     const handler = (_event, dataString) => {
       try {
         const data = JSON.parse(dataString);
-
         if (data.type !== 'biometrics') return;
 
         // Core status
@@ -58,12 +56,12 @@ export function useWorkGuardData() {
         setLivenessScore(data.liveness_score ?? 0);
         setLivenessStatus(data.liveness_status ?? "Pending");
 
-        // Context & cognitive (everything extra main.py adds)
+        // Context & cognitive
         if (data.app_context !== undefined) setAppContext(data.app_context);
 
-        // Strip known keys; whatever remains are cognitive metrics
+        // Strip all known top-level keys; remainder = cognitive/kinematic metrics
         const {
-           status: _s, calibration_progress: _cp,
+          status: _s, calibration_progress: _cp, type: _t, timestamp: _ts,
           ear: _ear, mar: _mar, pitch: _p, yaw: _y, roll: _r,
           is_speaking: _is, is_yawning: _iy,
           is_live: _il, liveness_score: _ls, liveness_status: _lst,
@@ -72,13 +70,17 @@ export function useWorkGuardData() {
         } = data;
         setCognitiveMetrics(rest);
 
-        // EAR history — last 50 samples
+        // Dual-chart history — last 60 samples with both EAR and MAR
         setHistory(prev => {
           const next = [
             ...prev,
-            { time: new Date().toLocaleTimeString(), value: data.ear ?? 0 }
+            {
+              time: new Date().toLocaleTimeString(),
+              ear:  data.ear ?? 0,
+              mar:  data.mar ?? 0,
+            }
           ];
-          return next.length > 50 ? next.slice(-50) : next;
+          return next.length > 60 ? next.slice(-60) : next;
         });
 
       } catch (e) {
@@ -91,18 +93,11 @@ export function useWorkGuardData() {
   }, []);
 
   return {
-    // status
-    status,
-    calibrationProgress,
-    // biometrics
+    status, calibrationProgress,
     ear, mar, pitch, yaw, roll,
-    // voice
     isSpeaking, isYawning,
-    // liveness
     isLive, livenessScore, livenessStatus,
-    // context
     appContext, cognitiveMetrics,
-    // chart
     history,
   };
 }
