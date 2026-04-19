@@ -4,6 +4,7 @@ import React from "react";
 import Navbar from "./components/Navbar.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Login from "./pages/Login.jsx";
+import Register from "./pages/Register.jsx";
 import ConsentSetup from "./pages/ConsentSetup.jsx";
 import WorkSession from "./pages/WorkSession.jsx";
 import WorkReport from "./pages/WorkReport.jsx";
@@ -27,25 +28,29 @@ const CatchAllRoute = () => {
 };
 
 const App = () => {
+  const { employee } = useSession();
+  const showSidebar = !!employee;
+
   return (
     <div style={{ display: "flex" }}>
-      
-      {/* LEFT SIDEBAR */}
-      <Navbar />
+
+      {/* LEFT SIDEBAR — only shown when logged in */}
+      {showSidebar && <Navbar />}
 
       {/* RIGHT CONTENT AREA */}
       <div
         style={{
-          marginLeft: "250px",   // same width as sidebar
+          marginLeft: showSidebar ? "250px" : "0",
           width: "100%",
           minHeight: "100vh",
-          backgroundColor: "#f1f5f9",
-          padding: "30px 40px",
+          backgroundColor: showSidebar ? "#f1f5f9" : "transparent",
+          padding: showSidebar ? "30px 40px" : "0",
         }}
       >
         <Routes>
           <Route path="/" element={<Navigate to="/login" />} />
           <Route path="/login" element={<LoginRoute element={<Login />} />} />
+          <Route path="/register" element={<LoginRoute element={<Register />} />} />
 
           <Route
             path="/dashboard"

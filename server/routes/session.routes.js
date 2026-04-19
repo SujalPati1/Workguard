@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const authMiddleware = require("../middleware/authMiddleware");
 
 const {
   startSession,
@@ -10,17 +11,16 @@ const {
   getSessionById,
 } = require("../controllers/session.controller");
 
-// Session Management Endpoints
-router.post("/start", startSession);
-router.post("/stop", stopSession);
-router.post("/resume", resumeSession);
-router.post("/checkpoint", checkpoint);
+// All session endpoints require a valid JWT.
+// empId is still accepted from the request body so existing frontend clients
+// continue to work — the JWT only proves the caller is a known user.
+router.post("/start",      authMiddleware, startSession);
+router.post("/stop",       authMiddleware, stopSession);
+router.post("/resume",     authMiddleware, resumeSession);
+router.post("/checkpoint", authMiddleware, checkpoint);
 
-// Session Report Endpoints
-router.get("/report/today/:empId", getTodayReport);
-router.get("/:sessionId", getSessionById);
+// Session report endpoints — also protected
+router.get("/report/today/:empId", authMiddleware, getTodayReport);
+router.get("/:sessionId",          authMiddleware, getSessionById);
 
 module.exports = router;
-
-
-

@@ -49,4 +49,8 @@ const sessionSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Compound index — covers the heavy queries in session & report controllers:
+// Session.find({ empId, attendanceStatus, startTime: {$gte, $lte} })
+sessionSchema.index({ empId: 1, attendanceStatus: 1, startTime: -1 });
+
 module.exports = mongoose.model("Session", sessionSchema);

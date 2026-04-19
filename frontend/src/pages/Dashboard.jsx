@@ -1,5 +1,7 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { formatHMS } from "../utils/timeUtils";
+import { useSession } from "../context/SessionContext";
+import { getTodayReportApi } from "../api/reportApi";
 import {
   Activity,
   Brain,
@@ -19,49 +21,47 @@ import {
 } from "recharts";
 
 const Dashboard = () => {
-  const userId = "101";
+  const { employee } = useSession();
 
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const loadReport = async () => {
+  const loadReport = useCallback(async () => {
+    if (!employee?.empId) return;
     try {
       setLoading(true);
       setError("");
-
-      const res = await fetch(
-        `http://localhost:5000/session/report/today/${userId}`
-      );
-
-      if (!res.ok) {
-        throw new Error("Failed to fetch report");
-      }
-
-      const data = await res.json();
-
-      // Ensure object fallback
+      const data = await getTodayReportApi(employee.empId);
       setReport(data && typeof data === "object" ? data : {});
     } catch (err) {
-      setError("Backend not responding or invalid response.");
+      setError(
+        err?.response?.data?.message || "Backend not responding or invalid response."
+      );
     } finally {
       setLoading(false);
     }
-  };
+  }, [employee?.empId]);
 
   useEffect(() => {
     loadReport();
-  }, []);
+  }, [loadReport]);
 
   /* ---------------- SAFE DATA EXTRACTION ---------------- */
 
   const attendanceStatus = report?.attendanceStatus ?? "Absent";
   const focusScore = Number(report?.focusScore ?? 0);
-  const totalWorkTime = Number(report?.totalWorkTime ?? 0);
+  // API returns totalLoggedTime (seconds); totalDuration does not exist in this response.
+  const totalWorkTime = Number(report?.totalLoggedTime ?? 0);
 
-  const activityTimeline = Array.isArray(report?.activityTimeline)
-    ? report.activityTimeline
-    : [];
+  // Build a simple activity timeline from today's sessions array (checkpoints are stored per session)
+  const activityTimeline = useMemo(() => {
+    const sessions = Array.isArray(report?.sessions) ? report.sessions : [];
+    return sessions.map((s, i) => ({
+      time: s.startTime ? new Date(s.startTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : `S${i + 1}`,
+      activity: s.totalDuration > 0 ? Math.round(((s.activeTime || 0) / s.totalDuration) * 100) : 0,
+    }));
+  }, [report]);
 
   const burnoutRisk = useMemo(() => {
     if (focusScore > 75) return "Low";

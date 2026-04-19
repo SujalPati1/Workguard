@@ -1,5 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useSession } from "../context/SessionContext.jsx";
+import {
+  getTodayReportApi,
+  getAttendanceSummaryApi,
+} from "../api/reportApi.js";
 
 const WorkReport = () => {
   const { employee } = useSession();
@@ -9,103 +13,112 @@ const WorkReport = () => {
 
   const [msg, setMsg] = useState("");
   const [loadingSummary, setLoadingSummary] = useState(false);
+  const [loadingReport, setLoadingReport] = useState(false);
 
+  // ─── Formatters ────────────────────────────────────────────────────────────
   const formatTime = (secs) => {
-    const mins = Math.floor(secs / 60);
-    const sec = secs % 60;
+    const s = Math.max(0, Number(secs) || 0);
+    const mins = Math.floor(s / 60);
+    const sec = s % 60;
     return `${mins} min ${sec} sec`;
   };
 
   const formatHHMM = (sec) => {
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
+    const s = Math.max(0, Number(sec) || 0);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
     return `${h}h ${m}m`;
   };
 
-  // ✅ Load Attendance Summary (last 3 months)
-  const loadSummary = async () => {
+  // ─── Load Attendance Summary (last 3 months) ───────────────────────────────
+  const loadSummary = useCallback(async () => {
+    if (!employee?.empId) return;
+
+    setLoadingSummary(true);
+    setMsg("");
+
     try {
-      if (!employee?.empId) return;
+      const data = await getAttendanceSummaryApi(employee.empId, 3);
 
-      setLoadingSummary(true);
-
-      const res = await fetch(
-        `http://localhost:5000/attendance/summary/${employee.empId}`
-      );
-      const data = await res.json();
-
-      if (!res.ok) {
-        setMsg(data.message || "❌ Failed to load summary");
+      if (!data.success) {
+        setMsg(data.message || "Failed to load summary");
         setLoadingSummary(false);
         return;
       }
 
       setSummary(data);
-      setLoadingSummary(false);
     } catch (err) {
+      console.error("Summary load error:", err);
+      setMsg(
+        err?.response?.data?.message || "Backend not responding (Summary)"
+      );
+    } finally {
       setLoadingSummary(false);
-      setMsg("❌ Backend not responding (Summary)");
     }
-  };
+  }, [employee?.empId]);
 
   useEffect(() => {
     loadSummary();
-    // eslint-disable-next-line
-  }, [employee]);
+  }, [loadSummary]);
 
-  // ✅ Generate Today's Report from DB
+  // ─── Generate Today's Report from DB ───────────────────────────────────────
   const generateReport = async () => {
+    if (!employee?.empId) {
+      setMsg("Please login first");
+      return;
+    }
+
+    setLoadingReport(true);
+    setMsg("Generating report...");
+
     try {
-      if (!employee?.empId) {
-        setMsg("❌ Please login first");
-        return;
-      }
+      const data = await getTodayReportApi(employee.empId);
 
-      
-
-      setMsg("Generating report...");
-
-      const res = await fetch(
-        `http://localhost:5000/session/report/today/${employee.empId}`
-      );
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setMsg(data.message || "❌ Error generating report");
+      if (!data.success) {
+        setMsg(data.message || "Error generating report");
+        setLoadingReport(false);
         return;
       }
 
       setReport(data);
-      setMsg("✅ Report ready!");
+      setMsg("Report ready!");
     } catch (err) {
-      console.log(err);
-      setMsg("❌ Backend not responding (Report)");
+      console.error("Report generate error:", err);
+      setMsg(
+        err?.response?.data?.message || "Backend not responding (Report)"
+      );
+    } finally {
+      setLoadingReport(false);
     }
   };
 
-  // ✅ Download PDF
+  // ─── Download PDF — uses browser's built-in print dialog ──────────────────
+  // pdfkit is Node-only and won't work in a browser.
+  // window.print() works everywhere and the user can "Save as PDF" from the dialog.
   const downloadPDF = () => {
-    if (!employee?.empId) {
-      setMsg("❌ Please login first");
+    if (!report) {
+      setMsg("Generate a report first before downloading.");
       return;
     }
-    window.open(`http://localhost:5000/report/pdf/${employee.empId}`, "_blank");
+    window.print();
   };
 
+  // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="wg-report-page">
       {/* Header */}
       <div className="wg-report-head">
         <div>
-          <h2 className="wg-report-title">Report & Attendance Summary</h2>
+          <h2 className="wg-report-title">Report &amp; Attendance Summary</h2>
           <p className="wg-report-sub">
-            ✅ Employee generates and shares report only if they want.
+            Employee generates and shares report only if they want.
           </p>
 
           <p className="wg-report-emp">
             <b>Logged Employee:</b>{" "}
-            {employee ? `${employee.name} (${employee.empId})` : "Not Logged In"}
+            {employee
+              ? `${employee.fullName || employee.empId} (${employee.empId})`
+              : "Not Logged In"}
           </p>
         </div>
 
@@ -121,10 +134,10 @@ const WorkReport = () => {
       {/* Summary section */}
       <div className="wg-section">
         <div className="wg-section-top">
-          <h3 className="wg-section-title">📊 Attendance Summary (Last 3 Months)</h3>
+          <h3 className="wg-section-title">Attendance Summary (Last 3 Months)</h3>
 
           <button className="wg-btn wg-btn-light" onClick={loadSummary}>
-            🔄 Refresh
+            Refresh
           </button>
         </div>
 
@@ -189,15 +202,19 @@ const WorkReport = () => {
                         {formatHHMM(s.breakSeconds || 0)}
                       </p>
                       {s.outcomeNote && (
-                        <p className="wg-note">“{s.outcomeNote}”</p>
+                        <p className="wg-note">"{s.outcomeNote}"</p>
                       )}
                     </div>
 
                     <div className="wg-pill">
-                      {s.workStatus || "WORKING"}
+                      {s.attendanceResult || s.workStatus || "WORKING"}
                     </div>
                   </div>
                 ))}
+
+                {(!summary.sessions || summary.sessions.length === 0) && (
+                  <p className="wg-muted">No sessions in the last 3 months.</p>
+                )}
               </div>
             </div>
           </>
@@ -207,14 +224,22 @@ const WorkReport = () => {
       {/* Report section */}
       <div className="wg-section">
         <div className="wg-section-top">
-          <h3 className="wg-section-title">📄 Today’s Work Report</h3>
+          <h3 className="wg-section-title">Today's Work Report</h3>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button className="wg-btn wg-btn-primary" onClick={generateReport}>
-              Generate Report
+            <button
+              className="wg-btn wg-btn-primary"
+              onClick={generateReport}
+              disabled={loadingReport}
+            >
+              {loadingReport ? "Generating..." : "Generate Report"}
             </button>
 
-            <button className="wg-btn wg-btn-success" onClick={downloadPDF}>
+            <button
+              className="wg-btn wg-btn-success"
+              onClick={downloadPDF}
+              disabled={!report}
+            >
               Download PDF
             </button>
           </div>
@@ -223,35 +248,39 @@ const WorkReport = () => {
         {msg && <p className="wg-msg">{msg}</p>}
 
         {report && (
-  <div className="wg-report-card">
+          <div className="wg-report-card">
+            <h3>Daily Work Summary</h3>
 
-    <h3>Daily Work Summary</h3>
+            <p><b>Date:</b> {report.date}</p>
 
-    <p><b>Date:</b> {report.date}</p>
+            <p>
+              <b>Session Time:</b>{" "}
+              {report.sessionStart
+                ? new Date(report.sessionStart).toLocaleTimeString()
+                : "—"}{" "}
+              -{" "}
+              {report.sessionEnd
+                ? new Date(report.sessionEnd).toLocaleTimeString()
+                : report.hasLiveSession
+                ? "In Progress"
+                : "—"}
+            </p>
 
-    <p>
-      <b>Session Time:</b> 
-      {new Date(report.sessionStart).toLocaleTimeString()} 
-      - 
-      {new Date(report.sessionEnd).toLocaleTimeString()}
-    </p>
+            <hr />
 
-    <hr />
+            <p><b>Total Logged:</b> {formatTime(report.totalLoggedTime)}</p>
+            <p><b>Active:</b> {formatTime(report.activeTime)}</p>
+            <p><b>Idle:</b> {formatTime(report.idleTime)}</p>
+            <p><b>Focus Mode:</b> {formatTime(report.focusTime)}</p>
 
-    <p><b>Total Logged:</b> {formatTime(report.totalLoggedTime)}</p>
-    <p><b>Active:</b> {formatTime(report.activeTime)}</p>
-    <p><b>Idle:</b> {formatTime(report.idleTime)}</p>
-    <p><b>Focus Mode:</b> {formatTime(report.focusTime)}</p>
+            <hr />
 
-    <hr />
-
-    <p><b>Productivity:</b> {report.productivityScore}%</p>
-    <p><b>Focus Score:</b> {report.focusScore}%</p>
-    <p><b>Burnout Risk:</b> {report.burnoutRisk}</p>
-    <p><b>Status:</b> {report.attendanceStatus}</p>
-
-  </div>
-)}
+            <p><b>Productivity:</b> {report.productivityScore}%</p>
+            <p><b>Focus Score:</b> {report.focusScore}%</p>
+            <p><b>Burnout Risk:</b> {report.burnoutRisk}</p>
+            <p><b>Status:</b> {report.attendanceStatus}</p>
+          </div>
+        )}
       </div>
 
       {/* Premium CSS */}
@@ -435,6 +464,11 @@ const WorkReport = () => {
           cursor:pointer;
         }
 
+        .wg-btn:disabled{
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
         .wg-btn-primary{
           border: none;
           background: linear-gradient(135deg, #60a5fa, #a78bfa, #34d399);
@@ -479,6 +513,11 @@ const WorkReport = () => {
         @media(max-width: 650px){
           .wg-report-head{ flex-direction: column; align-items: flex-start; }
           .wg-summary-grid{ grid-template-columns: 1fr; }
+        }
+
+        @media print {
+          .wg-btn, .wg-section-top button { display: none !important; }
+          .wg-report-page { background: white; padding: 0; }
         }
       `}</style>
     </div>

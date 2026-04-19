@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import { refreshAccessToken, getCurrentUser, logoutEmployee } from "../api/authApi";
+import { checkpointApi } from "../utils/attendanceApi";
 
 const SessionContext = createContext(null);
 
@@ -60,6 +61,25 @@ export const SessionProvider = ({ children }) => {
   useEffect(() => {
     localStorage.setItem("wg_workSession", JSON.stringify(workSessionState));
   }, [workSessionState]);
+
+  // ===== GLOBAL ACTIVITY TRACKING =====
+  // Stored in a ref so the timer closure always reads the latest value
+  // without needing to be in its dependency array.
+  const lastActivityRef = useRef(Date.now());
+
+  useEffect(() => {
+    const touch = () => { lastActivityRef.current = Date.now(); };
+    window.addEventListener("mousemove", touch);
+    window.addEventListener("keydown",   touch);
+    window.addEventListener("click",     touch);
+    window.addEventListener("scroll",    touch);
+    return () => {
+      window.removeEventListener("mousemove", touch);
+      window.removeEventListener("keydown",   touch);
+      window.removeEventListener("click",     touch);
+      window.removeEventListener("scroll",    touch);
+    };
+  }, []);
 
   // ===== WORK SESSION METHODS =====
   const updateWorkSession = useCallback((updates) => {
@@ -136,6 +156,57 @@ export const SessionProvider = ({ children }) => {
   const setWorkStatus = useCallback((status) => {
     updateWorkSession({ workStatus: status });
   }, [updateWorkSession]);
+
+  // ===== GLOBAL TIMER ENGINE =====
+  // Lives in the context — survives page navigation, tab switches, and
+  // anything short of a full page reload or explicit session stop.
+  useEffect(() => {
+    if (!workSessionState.running) return;
+
+    const idleThreshold = workSessionState.focusMode ? 30 * 60 : 10 * 60; // seconds
+
+    const tick = setInterval(() => {
+      const idleNow = (Date.now() - lastActivityRef.current) / 1000;
+      const status  = workSessionState.workStatus;
+
+      if (status === "WAITING") {
+        setWorkSessionState(prev => ({ ...prev, waitingSec: prev.waitingSec + 1 }));
+      } else if (status === "BREAK") {
+        setWorkSessionState(prev => ({ ...prev, breakSec: prev.breakSec + 1 }));
+      } else if (idleNow > idleThreshold) {
+        setWorkSessionState(prev => ({ ...prev, idleSec: prev.idleSec + 1 }));
+      } else {
+        setWorkSessionState(prev => ({ ...prev, activeSec: prev.activeSec + 1 }));
+      }
+    }, 1000);
+
+    return () => clearInterval(tick);
+  // Re-create the interval only when the session starts/stops or focus-mode changes.
+  // workStatus and seconds are read from state snapshots inside the closure.
+  }, [workSessionState.running, workSessionState.focusMode, workSessionState.workStatus]);
+
+  // ===== GLOBAL AUTO-CHECKPOINT (every 30 s) =====
+  // Also lives in the context so checkpoints keep firing on every page.
+  useEffect(() => {
+    if (!workSessionState.running || !workSessionState.sessionId) return;
+
+    const save = setInterval(async () => {
+      try {
+        await checkpointApi({
+          sessionId:      workSessionState.sessionId,
+          activeSeconds:  workSessionState.activeSec,
+          idleSeconds:    workSessionState.idleSec,
+          waitingSeconds: workSessionState.waitingSec,
+          breakSeconds:   workSessionState.breakSec,
+          workStatus:     workSessionState.workStatus,
+        });
+      } catch (err) {
+        console.error("[Context] Checkpoint error:", err);
+      }
+    }, 30000);
+
+    return () => clearInterval(save);
+  }, [workSessionState.running, workSessionState.sessionId]);
 
   // Login - store tokens and employee data
   const login = useCallback((empData, accessTok, refreshTok) => {
@@ -293,6 +364,9 @@ export const SessionProvider = ({ children }) => {
         incrementWaitingTime,
         incrementBreakTime,
         setWorkStatus,
+
+        // Exposed so WorkSession page can also update activity on local events
+        lastActivityRef,
       }}
     >
       {children}

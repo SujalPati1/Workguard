@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useSession } from "../context/SessionContext.jsx";
 import { loginEmployee } from "../api/authApi";
 import { motion, AnimatePresence } from "framer-motion";
@@ -308,6 +308,12 @@ const Login = () => {
                   Use the Employee ID provided by HR.
                   <br></br>
                   For password issues, contact admin.
+                </p>
+                <p className="wg-tip-text" style={{ marginTop: 8 }}>
+                  New employee?{" "}
+                  <Link to="/register" style={{ color: "rgba(147,197,253,0.98)", fontWeight: 900 }}>
+                    Create account →
+                  </Link>
                 </p>
               </div>
             </div>

@@ -1,6 +1,10 @@
 const Session = require("../models/Session.model");
 const Consent = require("../models/Consent");
 
+// Shared attendance thresholds — read from env vars so they match reportController.
+const PRESENT_THRESHOLD = parseInt(process.env.PRESENT_ACTIVE_SECONDS || "14400", 10);
+const PARTIAL_THRESHOLD = parseInt(process.env.PARTIAL_ACTIVE_SECONDS || "7200",  10);
+
 const isSessionStale = (session) => {
   if (!session || !session.startTime) return false;
   const now = new Date();
@@ -15,15 +19,15 @@ const isSessionStale = (session) => {
 const completeStaleSession = async (session) => {
   const start = new Date(session.startTime);
   const midnight = new Date(start);
-  midnight.setHours(0, 0, 0, 0, 0);
+  midnight.setHours(0, 0, 0, 0);
   const endOfDay = new Date(midnight.getTime() + 24 * 60 * 60 * 1000);
 
   session.endTime = endOfDay;
   session.totalDuration = Math.floor((endOfDay.getTime() - start.getTime()) / 1000);
 
   let result = "ABSENT";
-  if ((session.activeTime || 0) >= 120) result = "PRESENT";
-  else if ((session.activeTime || 0) >= 60) result = "PARTIAL";
+  if ((session.activeTime || 0) >= PRESENT_THRESHOLD) result = "PRESENT";
+  else if ((session.activeTime || 0) >= PARTIAL_THRESHOLD) result = "PARTIAL";
 
   session.attendanceResult = result;
   session.attendanceStatus = "COMPLETED";
@@ -116,8 +120,8 @@ const stopSession = async (req, res) => {
 
     // ✅ Calculate attendance result (2 minutes = 120 seconds minimum for PRESENT)
     let result = "ABSENT";
-    if (session.activeTime >= 120) result = "PRESENT";
-    else if (session.activeTime >= 60) result = "PARTIAL";
+    if (session.activeTime >= PRESENT_THRESHOLD) result = "PRESENT";
+    else if (session.activeTime >= PARTIAL_THRESHOLD) result = "PARTIAL";
 
     session.attendanceResult = result;
     session.attendanceStatus = "COMPLETED";
@@ -260,8 +264,8 @@ const getTodayReport = async (req, res) => {
 
     // ✅ Attendance status (2 minutes = 120 seconds minimum for PRESENT)
     let attendanceStatus = "ABSENT";
-    if (totalActive >= 120) attendanceStatus = "PRESENT";
-    else if (totalActive >= 60) attendanceStatus = "PARTIAL";
+    if (totalActive >= PRESENT_THRESHOLD) attendanceStatus = "PRESENT";
+    else if (totalActive >= PARTIAL_THRESHOLD) attendanceStatus = "PARTIAL";
 
     return res.status(200).json({
       empId,

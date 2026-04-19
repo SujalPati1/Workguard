@@ -1,10 +1,26 @@
+/**
+ * attendanceApi.js
+ * Low-level fetch wrapper for /attendance/* endpoints.
+ * Reads the JWT access-token from localStorage and attaches it to every
+ * request so the now-protected session routes accept the calls.
+ */
+
 const BASE = import.meta.env.VITE_API_URL + "/attendance";
+
+/** Read the stored access token — returns null when not logged in. */
+const getAuthHeader = () => {
+  const token = localStorage.getItem("wg_accessToken");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
 
 const request = async (url, options = {}) => {
   try {
     const res = await fetch(url, {
-      headers: { "Content-Type": "application/json" },
-      credentials: "include", // important for auth cookies
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeader(), // ← attach JWT on every request
+        ...(options.headers || {}),
+      },
       ...options,
     });
 

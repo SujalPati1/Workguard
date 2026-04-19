@@ -6,7 +6,7 @@ const ConsentSetup = () => {
   const { employee } = useSession(); // 👈 user comes from backend/session
 
   const [consent, setConsent] = useState({
-    userId: "", // initially empty
+    userId: "",
     trackingEnabled: true,
     wellnessEnabled: true,
     cameraEnabled: false,
@@ -21,7 +21,7 @@ const ConsentSetup = () => {
       const result = await getConsent();
       if (result.success && result.data) {
         setConsent({
-          userId: employee.id,
+          userId: employee?.id || employee?._id,
           trackingEnabled: result.data.trackingEnabled ?? true,
           wellnessEnabled: result.data.wellnessEnabled ?? true,
           cameraEnabled: result.data.cameraEnabled ?? false,
@@ -31,7 +31,7 @@ const ConsentSetup = () => {
       } else {
         // If no data, set defaults
         setConsent({
-          userId: employee.id,
+          userId: employee?.id || employee?._id,
           trackingEnabled: true,
           wellnessEnabled: true,
           cameraEnabled: false,
@@ -43,7 +43,7 @@ const ConsentSetup = () => {
       console.error("Error loading consent:", err);
       // On error, set defaults
       setConsent({
-        userId: employee.id,
+        userId: employee?.id || employee?._id,
         trackingEnabled: true,
         wellnessEnabled: true,
         cameraEnabled: false,
@@ -57,7 +57,8 @@ const ConsentSetup = () => {
      SET USER ID FROM BACKEND
   -------------------------- */
   useEffect(() => {
-    if (employee?._id) {
+    // Check for both `id` and `_id` since `getCurrentUser` returns Mongoose document with `_id`
+    if (employee?.id || employee?._id) {
       loadConsent();
     }
   }, [employee]);

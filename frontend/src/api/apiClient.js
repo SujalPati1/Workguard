@@ -47,8 +47,7 @@ apiClient.interceptors.response.use(
 
     if (
       error.response?.status === 401 &&
-      !originalRequest._retry &&
-      error.response?.data?.message === "Invalid Token"
+      !originalRequest._retry
     ) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {

@@ -31,8 +31,15 @@ mongoose.connect(process.env.MONGO_URI)
 // Routes
 app.use(require("./routes/authRoutes"));
 app.use(require("./routes/consentRoutes"));
+
+// Session management — /attendance/start, /stop, /resume, /checkpoint, etc.
 app.use("/attendance", require("./routes/session.routes"));
-app.use("/api/sessions", require("./routes/session.routes"));
+
+// Work Report & Attendance Summary — /api/report/today/:empId, /summary/:empId, etc.
+app.use("/api/report", require("./routes/reportRoutes"));
+
+// Admin — /api/admin/employees
+app.use("/api/admin", require("./routes/adminRoutes"));
 
 // Health check
 app.get("/health", (req, res) => {

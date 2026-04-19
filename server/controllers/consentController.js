@@ -1,60 +1,76 @@
-const mongoose = require("mongoose");
 const Consent = require("../models/Consent");
+const User = require("../models/User");
 const validateConsent = require("../utils/validateConsent");
 
-exports.saveConsent = async (req,res)=>{
+// @route   POST /api/consent/save
+// @access  Private
+exports.saveConsent = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    if(!validateConsent(req.body))
+    if (!validateConsent(req.body)) {
       return res.status(400).json({
-        success:false,
-        message:"Invalid data"
+        success: false,
+        message: "Invalid consent data — all boolean fields and retention string are required",
       });
-    console.log(req.body)
+    }
+
+    // Look up the empId so we can store it alongside userId.
+    // This fixes the Consent↔Session cross-linking inconsistency: Sessions
+    // only store empId (String), Consent previously only stored userId (ObjectId).
+    const user = await User.findById(userId).select("empId");
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
     const saved = await Consent.findOneAndUpdate(
       { userId },
-      { ...req.body, userId },
-      { upsert:true, new:true }
+      { ...req.body, userId, empId: user.empId },
+      { upsert: true, new: true, runValidators: true }
     );
-    console.log(saved)
 
-    res.json({
-      success:true,
+    return res.status(200).json({
+      success: true,
       data: saved,
-      message:"Consent updated successfully"
+      message: "Consent updated successfully",
     });
-  } catch(err){
-    res.status(500).json({
-      success:false,
-      message:"Server error"
+  } catch (err) {
+    console.error("saveConsent error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error saving consent",
+      error: err.message,
     });
   }
 };
 
-exports.getConsent = async (req,res) => {
+// @route   GET /api/consent
+// @access  Private
+exports.getConsent = async (req, res) => {
   try {
     const userId = req.user.id;
 
     const found = await Consent.findOne({ userId });
 
     if (!found) {
-      return res.json({
+      return res.status(200).json({
         success: true,
         data: null,
-        message: "No consent record found"
+        message: "No consent record found",
       });
     }
-
-    res.json({
+    console.log(found);
+    return res.status(200).json({
       success: true,
       data: found,
-      message: "Consent record fetched"
+      message: "Consent record fetched",
     });
   } catch (err) {
-    res.status(500).json({
-      success:false,
-      message:"Server error"
+    console.error("getConsent error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error fetching consent",
+      error: err.message,
     });
   }
 };

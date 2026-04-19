@@ -1,6 +1,24 @@
 import { useState, useEffect } from 'react';
 
-const { ipcRenderer } = window.require('electron');
+/**
+ * useWorkGuardData
+ * Subscribes to biometric data published by the Python engine over ZeroMQ,
+ * forwarded to the renderer via Electron's ipcRenderer.
+ *
+ * This hook is safe to import in a browser context — it gracefully degrades
+ * when ipcRenderer is unavailable (non-Electron environment) by returning
+ * all default/zeroed values and never subscribing to any events.
+ */
+
+// Guard: only call window.require in a real Electron renderer process.
+let ipcRenderer = null;
+try {
+  if (typeof window !== "undefined" && window.process?.type === "renderer") {
+    ipcRenderer = window.require("electron").ipcRenderer;
+  }
+} catch {
+  // Running in a plain browser — ipcRenderer stays null, hook returns defaults.
+}
 
 export function useWorkGuardData() {
   // ── Core status ──────────────────────────────────────────────────────────
@@ -32,6 +50,9 @@ export function useWorkGuardData() {
   const [history, setHistory] = useState([]);
 
   useEffect(() => {
+    // No-op in browser (non-Electron) environments.
+    if (!ipcRenderer) return;
+
     const handler = (_event, dataString) => {
       try {
         const data = JSON.parse(dataString);

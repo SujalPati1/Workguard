@@ -7,7 +7,7 @@ const generateTokens = (userId) => {
     expiresIn: "2h",
   });
 
-  const refreshToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, {
+  const refreshToken = jwt.sign({ id: userId }, process.env.REFRESH_TOKEN_SECRET || process.env.JWT_SECRET, {
     expiresIn: "7d",
   });
 
@@ -100,7 +100,6 @@ exports.login = async (req, res) => {
       $or: [{ email }, { empId }],
     });
 
-    console.log(user)
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -110,7 +109,6 @@ exports.login = async (req, res) => {
 
     // Match password
     const isMatch = await user.matchPassword(password);
-    console.log(isMatch)
     if (!isMatch) {
       return res.status(401).json({
         success: false,
@@ -129,8 +127,6 @@ exports.login = async (req, res) => {
     
     // Generate tokens
     const { accessToken, refreshToken } = generateTokens(user._id);
-    console.log(`access token: ${accessToken}, refresh token: ${refreshToken}`)
-    
     // Save refresh token and update last login
     user.refreshToken = refreshToken;
     user.lastLogin = new Date();
@@ -183,7 +179,14 @@ exports.refreshToken = async (req, res) => {
     }
 
     // Verify refresh token
-    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+    // Verify using the dedicated refresh secret (falls back to JWT_SECRET for
+    // tokens issued before REFRESH_TOKEN_SECRET was added).
+    let decoded;
+    try {
+      decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET || process.env.JWT_SECRET);
+    } catch {
+      decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+    }
     const user = await User.findById(decoded.id);
 
     if (!user || user.refreshToken !== refreshToken) {

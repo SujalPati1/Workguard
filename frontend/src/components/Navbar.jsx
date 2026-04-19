@@ -127,7 +127,7 @@ const Navbar = () => {
                 color: "#475569",
               }}
             >
-              {employee?.name?.charAt(0)?.toUpperCase() || "U"}
+              {employee?.fullName?.charAt(0)?.toUpperCase() || employee?.empId?.charAt(0)?.toUpperCase() || "U"}
             </div>
 
             <div style={{ flex: 1 }}>
@@ -138,7 +138,7 @@ const Navbar = () => {
                   color: "#0f172a",
                 }}
               >
-                {employee?.name || "User"}
+                {employee?.fullName || employee?.empId || "User"}
               </div>
               <div style={{ fontSize: "12px", color: "#64748b" }}>
                 Emp ID: {employee?.empId || "—"}

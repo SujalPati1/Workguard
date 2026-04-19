@@ -1,4 +1,5 @@
 import { useSession } from "../context/SessionContext";
+import { useNavigate } from "react-router-dom";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 
 import {
@@ -19,7 +20,8 @@ const formatTime = (sec) => {
 };
 
 const WorkSession = () => {
-  const { employee, workSessionState, updateWorkSession, incrementActiveTime, incrementIdleTime, incrementWaitingTime, incrementBreakTime, setWorkStatus: setWorkStatusCtx } = useSession();
+  const { employee, workSessionState, updateWorkSession, incrementActiveTime, incrementIdleTime, incrementWaitingTime, incrementBreakTime, setWorkStatus: setWorkStatusCtx, lastActivityRef } = useSession();
+  const navigate = useNavigate();
 
   // Destructure from context (persistent across page navigation)
   const running = workSessionState.running;
@@ -31,7 +33,8 @@ const WorkSession = () => {
   const focusMode = workSessionState.focusMode;
   const workStatus = workSessionState.workStatus;
 
-  const lastActivityRef = useRef(Date.now());
+  // lastActivityRef comes from SessionContext — shared with the global timer
+  // so navigating back to this page keeps the same idle-detection baseline.
 
   // ===== LOCAL STATES (UI only) =====
   const [showJoke, setShowJoke] = useState(false);
@@ -57,49 +60,20 @@ const jokes = [
     return focusMode ? 30 * 60 : 10 * 60;
   }, [focusMode]);
 
-  // ===== ACTIVITY DETECTION =====
+  // ===== LOCAL ACTIVITY BOOST =====
+  // The global listener in SessionContext already tracks activity app-wide.
+  // This one just ensures clicks/keys ON this page are captured immediately.
   useEffect(() => {
-    const updateActivity = () => {
-      lastActivityRef.current = Date.now();
-    };
-
-    window.addEventListener("mousemove", updateActivity);
-    window.addEventListener("keydown", updateActivity);
-    window.addEventListener("click", updateActivity);
-
+    const update = () => { lastActivityRef.current = Date.now(); };
+    window.addEventListener("mousemove", update);
+    window.addEventListener("keydown",   update);
+    window.addEventListener("click",     update);
     return () => {
-      window.removeEventListener("mousemove", updateActivity);
-      window.removeEventListener("keydown", updateActivity);
-      window.removeEventListener("click", updateActivity);
+      window.removeEventListener("mousemove", update);
+      window.removeEventListener("keydown",   update);
+      window.removeEventListener("click",     update);
     };
-  }, []);
-
-  // ===== TIMER ENGINE (Persists across page navigation) =====
-  useEffect(() => {
-    if (!running) return;
-
-    const interval = setInterval(() => {
-      const idleNow = (Date.now() - lastActivityRef.current) / 1000;
-
-      if (workStatus === "WAITING") {
-        incrementWaitingTime();
-        return;
-      }
-
-      if (workStatus === "BREAK") {
-        incrementBreakTime();
-        return;
-      }
-
-      if (idleNow > idleThresholdSec) {
-        incrementIdleTime();
-      } else {
-        incrementActiveTime();
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [running, workStatus, idleThresholdSec, incrementActiveTime, incrementIdleTime, incrementWaitingTime, incrementBreakTime]);
+  }, [lastActivityRef]);
 
   const totalTime = activeSec + idleSec + waitingSec + breakSec;
 
@@ -114,27 +88,8 @@ useEffect(() => {
 
 }, [activeSec, running]);
 
-  // ===== AUTO CHECKPOINT (Save progress every 30 seconds) =====
-  useEffect(() => {
-    if (!running || !sessionId) return;
-
-    const checkpointInterval = setInterval(async () => {
-      try {
-        await checkpointApi({
-          sessionId,
-          activeSeconds: activeSec,
-          idleSeconds: idleSec,
-          waitingSeconds: waitingSec,
-          breakSeconds: breakSec,
-          workStatus,
-        });
-      } catch (err) {
-        console.error("Checkpoint save error:", err);
-      }
-    }, 30000); // Save every 30 seconds
-
-    return () => clearInterval(checkpointInterval);
-  }, [running, sessionId, activeSec, idleSec, waitingSec, breakSec, workStatus]);
+  // Auto-checkpoint and idle threshold are now managed by SessionContext.
+  // No duplicate intervals here.
 
   // ===== START =====
   const handleStart = async () => {
@@ -178,25 +133,34 @@ useEffect(() => {
   const handleResume = async () => {
     if (!employee?.empId) return;
 
-    const res = await resumeSessionApi({
-      empId: employee.empId,
-    });
-
-    if (res?.session?._id) {
-      const s = res.session;
-
-      updateWorkSession({
-        sessionId: s._id,
-        running: true,
-        activeSec: s.activeTime || 0,
-        idleSec: s.idleTime || 0,
-        waitingSec: s.waitingTime || 0,
-        breakSec: s.breakTime || 0,
-        focusMode: !!s.focusMode,
-        workStatus: s.workStatus || "WORKING",
-        startTime: s.startTime ? new Date(s.startTime).getTime() : Date.now(),
+    try {
+      const res = await resumeSessionApi({
+        empId: employee.empId,
       });
-      setStatusMessage("");
+
+      if (res?.session?._id) {
+        const s = res.session;
+
+        updateWorkSession({
+          sessionId: s._id,
+          running: true,
+          activeSec: s.activeTime || 0,
+          idleSec: s.idleTime || 0,
+          waitingSec: s.waitingTime || 0,
+          breakSec: s.breakTime || 0,
+          focusMode: !!s.focusMode,
+          workStatus: s.workStatus || "WORKING",
+          startTime: s.startTime ? new Date(s.startTime).getTime() : Date.now(),
+        });
+        setStatusMessage("");
+      }
+    } catch (err) {
+      if (err.status === 404 || err.body?.message?.includes("No")) {
+        setStatusMessage("No active session to resume. Start a new session.");
+      } else {
+        console.error("Resume session failed:", err);
+        setStatusMessage("Unable to resume session right now.");
+      }
     }
   };
 
@@ -264,7 +228,7 @@ useEffect(() => {
       });
 
       // Redirect to Summary page
-      window.location.href = "/attendance-summary";
+      navigate("/attendance-summary");
     } catch (err) {
       console.error("Stop session failed", err);
     }
@@ -301,7 +265,7 @@ useEffect(() => {
           </div>
 
           <div className="ws-header-right">
-            <span className="ws-status inactive">
+            <span className={`ws-status ${running ? "active" : "inactive"}`}>
               ● {running ? "Running" : "Inactive"}
             </span>
             <span className="ws-user">
@@ -540,6 +504,16 @@ useEffect(() => {
           background:#fff;
         }
 
+        .ws-status.active{
+          color:#16a34a;
+          background:#dcfce7;
+        }
+
+        .ws-status.inactive{
+          color:#64748b;
+          background:#f1f5f9;
+        }
+
         .ws-user{
           background:#0ea5e9;
           color:white;
@@ -727,46 +701,20 @@ useEffect(() => {
          
         /* ===== ENHANCED SMILE CARD ===== */
 
-.smile-card-enhanced {
-  background: linear-gradient(135deg, #ffffff, #f0f9ff);
-  border-radius: 28px;
-  text-align: center;          /* CENTER EVERYTHING */
-  padding: 32px;
-  transition: all 0.3s ease;
-}
-
-.smile-title {
-  margin-bottom: 18px;
-}
-
+/* Merged single definition — second block values win for conflicting props,
+   unique props from the first block are preserved */
 .smile-icon-enhanced {
-  font-size: 52px;             /* Bigger for center look */
-  cursor: pointer;
-  transition: all 0.25s ease;
-  background: white;
-  padding: 20px;
-  border-radius: 50%;
-  box-shadow: 0 20px 45px rgba(0,0,0,0.12);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 18px;         /* Space below emoji */
-}
-
-.smile-subtext {
-  font-size: 15px;
-  color: #334155;
-  font-weight: 500;
-}
-
-.smile-icon-enhanced {
-  font-size: 42px;   /* BIGGER */
+  font-size: 42px;
   cursor: pointer;
   transition: all 0.25s ease;
   background: white;
   padding: 14px;
   border-radius: 50%;
   box-shadow: 0 15px 35px rgba(0,0,0,0.12);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 18px;
 }
 
 .smile-icon-enhanced:hover {
