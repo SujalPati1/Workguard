@@ -23,18 +23,19 @@ def get_biometrics(frame):
     if result is None:
         return None
 
-    landmarks, crop_w, crop_h = result
+    # Unpack 5-tuple: crop dims for 2D pixel math, full dims for camera matrix
+    landmarks, crop_w, crop_h, full_w, full_h = result
     
     # 1. Eyes
     left_ear = calculate_ear(landmarks, LEFT_EYE)
     right_ear = calculate_ear(landmarks, RIGHT_EYE)
     avg_ear = (left_ear + right_ear) / 2.0
     
-    # 2. Mouth (New!)
+    # 2. Mouth
     mar = calculate_mar(landmarks)
 
-    # 3. Head Pose
-    pitch, yaw, roll = get_head_pose(landmarks, crop_w, crop_h)
+    # 3. Head Pose — full frame dims passed for accurate focal-length estimate
+    pitch, yaw, roll = get_head_pose(landmarks, crop_w, crop_h, full_w, full_h)
     
     return {
         "ear": avg_ear,
