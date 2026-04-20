@@ -5,6 +5,7 @@ import json
 import signal
 import cv2
 import sys
+import os
 from sensors.camera import get_biometrics
 from sensors.context_poller import WindowContextPoller
 from sensors.kinematics import KinematicSensor
@@ -13,6 +14,8 @@ from models.liveness import LivenessEngine          # ← added missing import
 from filters import OneEuroFilter
 from calibration import CalibrationManager
 from logic.cognitive_tracker import CognitiveTracker
+
+_DEBUG_MODE = os.environ.get("WORKGUARD_DEBUG", "false").lower() == "true"
 
 # --- 1. SETUP ---
 context = zmq.Context()
@@ -77,11 +80,11 @@ _EAR_CONSEC_THRESH = 15    # ~0.5 s at 30 fps
 
 # ── Distraction frame counter ──────────────────────────────────────────────────
 # FIX: Require 30 consecutive frames of head deviation before flagging Distracted.
-# Also now checks BOTH Yaw (looking sideways) and Pitch (looking down at phone).
-# Uses calibrated personal baseline so we measure deviation, not absolute angle.
+# Checks absolute Yaw deviation (sideways). Redundant pitch checks removed.
+# Uses absolute angle threshold as per repo guidelines.
 _distract_consec        = 0
 _DISTRACT_CONSEC_THRESH = 30    # ~1 s at 30 fps
-_DISTRACT_ANGLE_DEG     = 15.0  # degrees deviation from personal baseline
+_DISTRACT_ANGLE_DEG     = 25.0  # absolute degrees threshold (yaw only)
 
 # Start context poller on its own daemon thread (1 Hz, Windows-only)
 context_poller = WindowContextPoller(poll_interval=1.0)
@@ -124,7 +127,8 @@ try:
             "is_live":              False,
             "liveness_score":       0.0,
             "liveness_status":      "Pending",   # human-readable liveness state
-            "challenge":            None         # challenge state
+            "challenge":            None,        # challenge state
+            "attendance":           None         # verification record
         }
 
         # ─────────────────────────────────────────────────────────────────────────
@@ -144,13 +148,14 @@ try:
             data_out["is_speaking"] = voice_result["is_speaking"]
             data_out["is_yawning"]  = voice_result["is_yawning"]
 
-            # DEBUG: watch MAR and detection state in terminal (comment out when happy)
-            print(
-                f"MAR={data_out['mar']:.3f}  EAR={data_out['ear']:.3f}  "
-                f"Yawn={voice_result['is_yawning']}  Speak={voice_result['is_speaking']}  "
-                f"Pitch={data_out['pitch']:.1f}  Yaw={data_out['yaw']:.1f}",
-                flush=True
-            )
+            # Optional: watch MAR and detection state in terminal during debug
+            if _DEBUG_MODE:
+                print(
+                    f"MAR={data_out['mar']:.3f}  EAR={data_out['ear']:.3f}  "
+                    f"Yawn={voice_result['is_yawning']}  Speak={voice_result['is_speaking']}  "
+                    f"Pitch={data_out['pitch']:.1f}  Yaw={data_out['yaw']:.1f}",
+                    flush=True
+                )
 
             # 3. Calibration & status logic
             if not calibrator.is_calibrated:
@@ -171,11 +176,11 @@ try:
                 if liveness_engine is None:
                     thresholds    = calibrator.get_thresholds()
                     liveness_engine = LivenessEngine(
-                        blink_threshold=thresholds["drowsy"]
+                        blink_threshold=thresholds["blink"]
                     )
                     print(
                         f"LIVENESS: Engine initialised — "
-                        f"blink_threshold={thresholds['drowsy']:.3f}",
+                        f"blink_threshold={thresholds['blink']:.3f}",
                         flush=True,
                     )
 
@@ -192,18 +197,11 @@ try:
 
                 data_out["status"] = "Drowsy" if _ear_consec >= _EAR_CONSEC_THRESH else "Focused"
 
-                # ── Head-pose distraction check (Yaw + Pitch, 15°, 30-frame) ─────
-                # FIX 1: Now checks BOTH yaw (looking left/right) AND pitch
-                #         (looking down at a phone / keyboard).
-                # FIX 2: Measures deviation from the user's personal calibrated
-                #         baseline instead of an arbitrary absolute angle.
-                # FIX 3: 30-frame buffer prevents quick glances from firing alerts.
-                baseline_pitch = thresholds.get("baseline_pitch", 0.0)
-                baseline_yaw   = thresholds.get("baseline_yaw",   0.0)
-                yaw_dev   = abs(data_out["yaw"]   - baseline_yaw)
-                pitch_dev = abs(data_out["pitch"] - baseline_pitch)
-
-                if yaw_dev > _DISTRACT_ANGLE_DEG or pitch_dev > _DISTRACT_ANGLE_DEG:
+                # ── Head-pose distraction check (Yaw Only, 25°, 30-frame) ──────
+                # Updated to use absolute yaw threshold as per repo guidelines.
+                # Redundant pitch checks removed to reduce false positives.
+                # Uses 30-frame buffer to filter momentary glances.
+                if abs(data_out["yaw"]) > _DISTRACT_ANGLE_DEG:
                     _distract_consec += 1
                 else:
                     _distract_consec = 0
@@ -221,6 +219,7 @@ try:
                 data_out["is_live"]        = is_live
                 data_out["liveness_score"] = round(liveness_score, 1)
                 data_out["challenge"]      = liveness_engine.challenge_status
+                data_out["attendance"]     = liveness_engine.attendance
                 
                 # Human-readable liveness state
                 if liveness_score == 0.0:

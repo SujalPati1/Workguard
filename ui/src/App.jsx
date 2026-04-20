@@ -1,5 +1,5 @@
 import React from 'react';
-import { useWorkGuardData } from './hooks/useWorkGuardData';
+import { useWorkGuardData, LIVE_THRESHOLD } from './hooks/useWorkGuardData';
 import {
   LineChart, Line, YAxis, XAxis, ResponsiveContainer, Tooltip, Legend
 } from 'recharts';
@@ -52,7 +52,7 @@ function DashboardView({ data }) {
     status, calibrationProgress,
     ear, mar, pitch, yaw, roll,
     isSpeaking, isYawning,
-    isLive, livenessScore, livenessStatus,
+    isLive, livenessScore, livenessStatus, challenge,
     appContext, cognitiveMetrics,
     history,
   } = data;
@@ -66,7 +66,7 @@ function DashboardView({ data }) {
     return                                         { bg: '#1e293b', border: '#475569', icon: <Activity size={20}/>,    text: '#94a3b8' };
   })();
 
-  const liveColor = isLive ? '#22c55e' : livenessScore > 40 ? '#f97316' : '#ef4444';
+  const liveColor = isLive ? '#22c55e' : livenessScore > (LIVE_THRESHOLD - 10) ? '#f97316' : '#ef4444';
   const poseColor = (val, thr = 15) => Math.abs(val) > thr ? '#f97316' : '#94a3b8';
 
   const kinematic = cognitiveMetrics?.kinematic ?? {};
@@ -149,6 +149,22 @@ function DashboardView({ data }) {
             <ShieldCheck size={18} color={liveColor} />
             <span>Liveness Verification</span>
           </div>
+
+          {challenge?.active && (
+            <div style={{ background: '#3b82f615', border: '1px solid #3b82f640', borderRadius: 8, padding: '10px 12px', marginBottom: '8px', textAlign: 'center' }}>
+              <div style={{ color: '#60a5fa', fontWeight: '700', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
+                Blink Challenge Active
+              </div>
+              <div style={{ fontSize: '0.9rem', color: '#e2e8f0', marginBottom: '4px' }}>
+                Please blink <strong>{challenge.required}</strong> times!
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'flex', justifyContent: 'center', gap: '12px' }}>
+                <span>Completed: <strong style={{ color: '#22c55e' }}>{challenge.done}</strong> / {challenge.required}</span>
+                <span>Time left: <strong>{challenge.remaining}s</strong></span>
+              </div>
+            </div>
+          )}
+
           <div className="liveness-score-row">
             <span className="liveness-big" style={{ color: liveColor }}>{livenessScore.toFixed(0)}</span>
             <span className="liveness-unit">/ 100</span>
@@ -158,7 +174,7 @@ function DashboardView({ data }) {
             <div className="bar-fill" style={{ width: `${Math.min(livenessScore, 100)}%`, background: liveColor, transition: 'width 0.3s' }} />
             <div className="liveness-threshold-line" />
           </div>
-          <div className="sub-note">Live threshold: 65 pts &nbsp;|&nbsp; Blinks + Sway + Breathing</div>
+          <div className="sub-note">Live threshold: {LIVE_THRESHOLD} pts &nbsp;|&nbsp; Blinks + Sway + Breathing</div>
         </div>
 
         <div className="card">

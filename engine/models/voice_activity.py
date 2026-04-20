@@ -13,7 +13,7 @@ class VoiceActivityDetector:
     ────────────────────────────────────────────────
     • Resting   → MAR ≈ 0.00–0.05, near-zero oscillation
     • Speaking  → MAR oscillates 0.05–0.38, rapid UP-DOWN zero-crossings
-    • Yawning   → MAR rises ABOVE 0.40, SUSTAINED for 2–6 seconds
+    • Yawning   → MAR rises ABOVE 0.42, SUSTAINED for ~1 second (12+ frames)
 
     Key fixes over original v4:
     ────────────────────────────────────────────────────────────────────────────
@@ -52,11 +52,10 @@ class VoiceActivityDetector:
         self.speaking_timer       = 0
 
         # ── Yawn detection ────────────────────────────────────────────────────
-        self.yawn_open_threshold  = 0.30
+        self.yawn_open_threshold  = 0.42
 
         # Onset: smoothed MAR must exceed threshold for this many frames.
-        # Reduced from 60→45 because forgiveness absorbs real jitter.
-        self.yawn_duration_frames = 15     # ≈1.5 s @ 30 fps
+        self.yawn_duration_frames = 12     # ≈0.4 s @ 30 fps
 
         # Forgiveness: consecutive sub-threshold frames to IGNORE during onset.
         # Old code did -2 decay which reset progress on every blink/jitter.

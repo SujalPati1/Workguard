@@ -132,7 +132,7 @@ class LivenessEngine:
             self.closed_frames += 1
             self._in_blink = True
         else:
-            if self._in_blink and self.closed_frames >= 1: # lowered to 1 to catch fast micro-blinks
+            if self._in_blink and self.closed_frames >= 2: 
                 self.blink_timestamps.append(time.time())
             self._in_blink     = False
             self.closed_frames = 0

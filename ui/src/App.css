@@ -1,7 +1,7 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 /* ── Reset & Base ─────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
   --bg:       #0f172a;
@@ -107,7 +107,7 @@ body {
   gap: 12px;
   transition: box-shadow 0.2s;
 }
-.card:hover { box-shadow: 0 0 0 1px var(--blue)22; }
+.card:hover { box-shadow: 0 0 0 1px #3b82f622; }
 
 .card-head {
   display: flex;
@@ -180,11 +180,11 @@ body {
   text-align: right;
 }
 
-/* Liveness threshold line at 65% */
+/* Liveness threshold line at 50% */
 .liveness-threshold-line {
   position: absolute;
   top: 0; bottom: 0;
-  left: 65%;
+  left: 50%;
   width: 2px;
   background: #fff4;
 }

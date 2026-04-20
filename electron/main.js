@@ -42,7 +42,7 @@ async function runZmqReceiver() {
     console.log(`[ZMQ Received]: ${dataString}`); 
     // -------------------------------------------------
 
-    if (mainWindow) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('python-data', dataString);
     }
   }
@@ -61,6 +61,10 @@ function createWindow() {
 
   // Load the React App (In dev, we load localhost:5173)
   mainWindow.loadURL('http://localhost:5173'); 
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
 app.whenReady().then(() => {
@@ -84,7 +88,7 @@ app.on('window-all-closed', () => {
 
 // On macOS: re-create the window if the dock icon is clicked and no windows are open.
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
+  if (mainWindow === null) {
     createWindow();
   }
 });

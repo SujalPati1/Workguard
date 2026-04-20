@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 
 const { ipcRenderer } = window.require('electron');
 
+export const LIVE_THRESHOLD = 50;
+
 export function useWorkGuardData() {
   // ── Core status ──────────────────────────────────────────────────────────
   const [status, setStatus]                           = useState("Waiting...");
@@ -22,12 +24,13 @@ export function useWorkGuardData() {
   const [isLive, setIsLive]               = useState(false);
   const [livenessScore, setLivenessScore] = useState(0);
   const [livenessStatus, setLivenessStatus] = useState("Pending");
+  const [challenge, setChallenge]           = useState(null);
 
   // ── Context & cognitive ──────────────────────────────────────────────────
   const [appContext, setAppContext]           = useState({});
   const [cognitiveMetrics, setCognitiveMetrics] = useState({});
 
-  // ── Dual-chart history (EAR + MAR, last 60 samples) ──────────────────────
+  // ── Dual-chart history (EAR + MAR, last 50 samples) ──────────────────────
   const [history, setHistory] = useState([]);
 
   useEffect(() => {
@@ -55,6 +58,7 @@ export function useWorkGuardData() {
         setIsLive(Boolean(data.is_live));
         setLivenessScore(data.liveness_score ?? 0);
         setLivenessStatus(data.liveness_status ?? "Pending");
+        setChallenge(data.challenge ?? null);
 
         // Context & cognitive
         if (data.app_context !== undefined) setAppContext(data.app_context);
@@ -64,13 +68,13 @@ export function useWorkGuardData() {
           status: _s, calibration_progress: _cp, type: _t, timestamp: _ts,
           ear: _ear, mar: _mar, pitch: _p, yaw: _y, roll: _r,
           is_speaking: _is, is_yawning: _iy,
-          is_live: _il, liveness_score: _ls, liveness_status: _lst,
+          is_live: _il, liveness_score: _ls, liveness_status: _lst, challenge: _ch, attendance: _att,
           app_context: _ac,
           ...rest
         } = data;
         setCognitiveMetrics(rest);
 
-        // Dual-chart history — last 60 samples with both EAR and MAR
+        // Dual-chart history — last 50 samples with both EAR and MAR
         setHistory(prev => {
           const next = [
             ...prev,
@@ -80,7 +84,7 @@ export function useWorkGuardData() {
               mar:  data.mar ?? 0,
             }
           ];
-          return next.length > 60 ? next.slice(-60) : next;
+          return next.length > 50 ? next.slice(-50) : next;
         });
 
       } catch (e) {
@@ -96,7 +100,7 @@ export function useWorkGuardData() {
     status, calibrationProgress,
     ear, mar, pitch, yaw, roll,
     isSpeaking, isYawning,
-    isLive, livenessScore, livenessStatus,
+    isLive, livenessScore, livenessStatus, challenge,
     appContext, cognitiveMetrics,
     history,
   };
