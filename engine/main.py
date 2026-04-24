@@ -119,6 +119,10 @@ while True:
             last_cam_retry = current_time
             print("[MeetingDetection] Meeting ended. Attempting camera reconnect...", flush=True)
             try:
+                # Release the previous (released or failed) handle before
+                # opening a new one to avoid leaking OS device handles on
+                # repeated failed reconnect attempts.
+                cap.release()
                 cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
                 if cap.isOpened():
                     camera_yielded = False
@@ -149,6 +153,7 @@ while True:
         "is_yawning": False,
         "status": "Absent",
         "calibration_progress": 0.0,
+        "camera_yielded": False,
     }
 
     # ------------------------------------------------------------------
@@ -156,10 +161,12 @@ while True:
     # ------------------------------------------------------------------
     if camera_yielded:
         # Camera is intentionally released — skip capture entirely.
-        if in_active_meeting:
-            data_out["status"] = "Active Collaboration (Camera Yielded)"
-        else:
-            data_out["status"] = "Camera Disconnected/Standby"
+        # Use the standard "Absent" status so downstream consumers see a
+        # value within the documented enum; the separate `camera_yielded`
+        # boolean (and `audio_meeting.in_active_meeting`) carry the richer
+        # context for consumers that need it.
+        data_out["camera_yielded"] = True
+        data_out["status"] = "Absent"
     else:
         # Normal path: attempt frame capture.
         ret: bool = False
@@ -175,7 +182,7 @@ while True:
 
         if not ret or frame is None:
             print("DEBUG: Failed to read frame (Camera busy or disconnected)", flush=True)
-            data_out["status"] = "Camera Disconnected/Standby"
+            data_out["status"] = "Absent"
             # Sleep briefly to avoid a tight spin on a dead capture device.
             time.sleep(1)
         else:

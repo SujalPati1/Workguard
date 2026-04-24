@@ -114,9 +114,25 @@ class AudioSessionPoller:
     # ------------------------------------------------------------------
 
     def start(self) -> None:
-        """Start the background polling thread (idempotent)."""
+        """Start the background polling thread.
+
+        Safe to call multiple times: a no-op while the thread is running, and
+        automatically recreates the thread if it has already been stopped via
+        :meth:`stop` (``threading.Thread`` instances can only be started once).
+        """
         if self._thread.is_alive():
             return
+        # If the thread was previously started and has since finished, we must
+        # create a fresh Thread object before calling start() again, because
+        # Python raises RuntimeError when start() is called on a thread that
+        # has already run to completion.
+        if self._thread.ident is not None:
+            self._stop_event.clear()
+            self._thread = threading.Thread(
+                target=self._poll_loop,
+                name="AudioSessionPoller",
+                daemon=True,
+            )
         self._thread.start()
         print("[AudioSessionPoller] Started.", flush=True)
 
