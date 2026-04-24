@@ -172,18 +172,18 @@ class AudioSessionPoller:
                 for session in sessions:
                     # --- Extract PID from the session control ----------------
                     #
-                    # pycaw's AudioSession objects expose ``Process`` (a
-                    # ``psutil.Process``) or ``ProcessId``.  However the
-                    # ``Process`` property itself calls ``psutil.Process(pid)``
-                    # internally and can raise.  We go through the raw
-                    # ``ProcessId`` and handle errors ourselves.
+                    # pycaw's AudioSession objects expose both ``ProcessId``
+                    # (raw int PID) and ``Process`` (a ``psutil.Process``
+                    # built lazily).  We use the raw ``ProcessId`` so we
+                    # fully control error handling instead of relying on
+                    # pycaw's internal ``psutil.Process(pid)`` call, which
+                    # can raise on short-lived or restricted processes.
                     pid: int = 0
                     try:
-                        proc_obj = session.Process
-                        if proc_obj is None:
+                        pid = session.ProcessId
+                        if pid == 0:
                             # System-level session (PID 0) — skip.
                             continue
-                        pid = proc_obj.pid
                     except Exception:
                         # If pycaw can't resolve the process at all, skip.
                         continue
