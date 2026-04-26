@@ -48,6 +48,8 @@ MEETING_APPS: Tuple[str, ...] = (
     "teams.exe",
     "discord.exe",
     "webex.exe",
+    "webexmta.exe",          # Webex Meetings Troubleshooting Agent
+    "ciscocollabhost.exe",   # Modern Webex App main host process
 )
 
 #: WASAPI ``AudioSessionState`` value indicating the session is actively

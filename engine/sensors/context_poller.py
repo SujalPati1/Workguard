@@ -70,6 +70,7 @@ _PROCESS_MAP: dict[str, tuple[str, str]] = {
     "teams.exe":            ("Microsoft Teams",        "Meeting"),
     "zoom.exe":             ("Zoom",                   "Meeting"),
     "webexmta.exe":         ("Cisco Webex",            "Meeting"),
+    "ciscocollabhost.exe":  ("Cisco Webex",            "Meeting"),
     "lync.exe":             ("Skype for Business",     "Meeting"),
     # Media
     "vlc.exe":              ("VLC",                    "Media"),
