@@ -116,9 +116,25 @@ class AudioSessionPoller:
     # ------------------------------------------------------------------
 
     def start(self) -> None:
-        """Start the background polling thread (idempotent)."""
+        """Start the background polling thread.
+
+        Safe to call multiple times: a no-op while the thread is running, and
+        automatically recreates the thread if it has already been stopped via
+        :meth:`stop` (``threading.Thread`` instances can only be started once).
+        """
         if self._thread.is_alive():
             return
+        # If the thread was previously started and has since finished, we must
+        # create a fresh Thread object before calling start() again, because
+        # Python raises RuntimeError when start() is called on a thread that
+        # has already run to completion.
+        if self._thread.ident is not None:
+            self._stop_event.clear()
+            self._thread = threading.Thread(
+                target=self._poll_loop,
+                name="AudioSessionPoller",
+                daemon=True,
+            )
         self._thread.start()
         print("[AudioSessionPoller] Started.", flush=True)
 
@@ -174,18 +190,18 @@ class AudioSessionPoller:
                 for session in sessions:
                     # --- Extract PID from the session control ----------------
                     #
-                    # pycaw's AudioSession objects expose ``Process`` (a
-                    # ``psutil.Process``) or ``ProcessId``.  However the
-                    # ``Process`` property itself calls ``psutil.Process(pid)``
-                    # internally and can raise.  We go through the raw
-                    # ``ProcessId`` and handle errors ourselves.
+                    # pycaw's AudioSession objects expose both ``ProcessId``
+                    # (raw int PID) and ``Process`` (a ``psutil.Process``
+                    # built lazily).  We use the raw ``ProcessId`` so we
+                    # fully control error handling instead of relying on
+                    # pycaw's internal ``psutil.Process(pid)`` call, which
+                    # can raise on short-lived or restricted processes.
                     pid: int = 0
                     try:
-                        proc_obj = session.Process
-                        if proc_obj is None:
+                        pid = session.ProcessId
+                        if pid == 0:
                             # System-level session (PID 0) — skip.
                             continue
-                        pid = proc_obj.pid
                     except Exception:
                         # If pycaw can't resolve the process at all, skip.
                         continue
