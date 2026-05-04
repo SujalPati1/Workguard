@@ -42,7 +42,7 @@ async function runZmqReceiver() {
     console.log(`[ZMQ Received]: ${dataString}`); 
     // -------------------------------------------------
 
-    if (mainWindow) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('python-data', dataString);
     }
   }
@@ -61,6 +61,10 @@ function createWindow() {
 
   // Load the React App (In dev, we load localhost:5173)
   mainWindow.loadURL('http://localhost:5173'); 
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
 app.whenReady().then(() => {
@@ -72,4 +76,19 @@ app.whenReady().then(() => {
 // Cleanup on Exit
 app.on('will-quit', () => {
   if (pythonProcess) pythonProcess.kill();
+});
+
+// Quit when all windows are closed (standard on Windows & Linux).
+// On macOS apps conventionally stay until the user quits explicitly.
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+
+// On macOS: re-create the window if the dock icon is clicked and no windows are open.
+app.on('activate', () => {
+  if (mainWindow === null) {
+    createWindow();
+  }
 });
