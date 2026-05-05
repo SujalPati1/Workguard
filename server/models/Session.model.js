@@ -29,6 +29,10 @@ const sessionSchema = new mongoose.Schema(
       default: "IN_PROGRESS",
     },
 
+    // Wellness score at end of session (0-100).
+    // Starts at 100, adjusted by biometric events. Employee-facing only.
+    finalWellnessScore: { type: Number, default: 100 },
+
     // Checkpoints history
     checkpoints: [
       {

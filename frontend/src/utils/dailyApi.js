@@ -66,3 +66,17 @@ export const syncDailyApi = (payload) =>
     method: "POST",
     body:   JSON.stringify(payload),
   });
+
+/** Push biometric wellness snapshot every 60 s during an active session */
+export const wellnessSyncApi = (payload) =>
+  fetch(
+    `${import.meta.env.VITE_API_URL}/api/telemetry/wellness`,
+    {
+      method:  "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeader(),
+      },
+      body: JSON.stringify(payload),
+    }
+  ).then((r) => r.json().catch(() => null));

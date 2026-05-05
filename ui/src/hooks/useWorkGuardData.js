@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 
 const { ipcRenderer } = window.require('electron');
 
+export const LIVE_THRESHOLD = 50;
+
 export function useWorkGuardData() {
   // ── Core status ──────────────────────────────────────────────────────────
   const [status, setStatus]                           = useState("Waiting...");

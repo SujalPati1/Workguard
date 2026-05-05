@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { refreshAccessToken, getCurrentUser, logoutEmployee } from "../api/authApi";
 import { getConsent } from "../api/consentApi";
 import { checkpointApi } from "../utils/attendanceApi";
-import { getLivenessStatusApi, heartbeatApi, markLivenessMissedApi } from "../utils/dailyApi";
+import { getLivenessStatusApi, heartbeatApi, markLivenessMissedApi, wellnessSyncApi } from "../utils/dailyApi";
+import { logWellnessEventApi, finalizeWellnessApi } from "../utils/wellnessApi";
 
 // Total liveness checks required per day (divides the work shift into 3 parts)
 const TOTAL_LIVENESS_REQUIRED = 3;
@@ -52,6 +53,22 @@ export const SessionProvider = ({ children }) => {
   // Tracks which slots have already been triggered this app-session to prevent repeat fires
   const firedSlotsRef = useRef(new Set());
 
+  // ===== WELLNESS SCORE STATE =====
+  // Per-session score, starts at 100, adjusted by biometric alerts.
+  // Completely separate from Idle logic. Employee-private.
+  const sessionWellnessScoreRef = useRef(100); // ref for async access in callbacks
+  const [sessionWellnessScore, setSessionWellnessScore] = useState(100);
+
+  // Throttle state for wellness event firing — prevents high-freq engine data spam.
+  // All timers and edge-detection state lives here as a single mutable object ref.
+  const wellnessThrottleRef = useRef({
+    lastStatus:     null,  // last engine status string seen
+    lastYawnMs:              null,  // timestamp of last yawn event fired
+    distractedAccumulatorMs: 0,     // accumulated distraction time (ms)
+    focusedStartMs:          null,  // timestamp when current focus streak started
+    lastStreakCount:         0,     // how many 5-min streaks have already been rewarded
+  });
+
   // ===== WORK SESSION STATE =====
   const [workSessionState, setWorkSessionState] = useState(() => {
     try {
@@ -93,19 +110,143 @@ export const SessionProvider = ({ children }) => {
   }, []);
 
   // ===== ENGINE TELEMETRY SUBSCRIPTION =====
-  // Subscribe once globally. Drives idle/active via engine 'status' field.
-  // Engine status: 'Focused'/'Drowsy'/'Distracted' → ACTIVE
-  //               'Absent' → IDLE (face not visible)
-  //               'No Camera' → time is tracked by interval fallback below
-  const engineIdleRef = useRef(false); // tracks whether engine says user is absent
+  // Multi-signal idle detection:
+  //   Signal 1 (Visual)    — engine status === 'Absent'  (camera must be ON)
+  //   Signal 2 (Physical)  — kinematic.is_idle === true  (always-on even if tracking off)
+  //   Signal 3 (Contextual)— Social/Media category sustained > OFF_TASK_IDLE_SEC seconds
+  // Generic 'Browsing' is treated as Active (benefit of the doubt for researchers).
+  const OFF_TASK_IDLE_SEC = 300; // 5 minutes of Social/Media before marking Idle
+  const SOCIAL_CATEGORIES = ['Social', 'Media']; // only explicit distractions, NOT 'Browsing'
+
+  const engineIdleRef         = useRef(false); // final computed idle flag read by the timer
+  const offTaskSecondsRef     = useRef(0);     // accumulated seconds in Social/Media
+  const lastTelemetryTimeRef  = useRef(null);  // wall-clock of last telemetry frame
+
   useEffect(() => {
     if (!isElectron()) return;
     const unsub = window.electronAPI.onTelemetry((data) => {
       setEngineTelemetry(data);
-      // Update idle flag so the interval below can read it
-      engineIdleRef.current = (data.status === 'Absent');
+
+      const now = Date.now();
+      // Compute elapsed seconds since last telemetry frame (capped at 5 s to avoid gaps after sleep)
+      const elapsedSec = lastTelemetryTimeRef.current
+        ? Math.min((now - lastTelemetryTimeRef.current) / 1000, 5)
+        : 0;
+      lastTelemetryTimeRef.current = now;
+
+      // Signal 1 — Visual absence (camera required)
+      const isAbsent = (data.status === 'Absent');
+
+      // Signal 2 — Physical inactivity (always-on kinematics)
+      const isPhysicallyIdle = (data.kinematic?.is_idle === true);
+
+      // Signal 3 — Off-task app context (Social/Media only, not generic Browsing)
+      const category = data.app_context?.category;
+      if (SOCIAL_CATEGORIES.includes(category)) {
+        offTaskSecondsRef.current += elapsedSec;
+      } else {
+        // Reset the grace-period timer as soon as they return to any work-related category
+        offTaskSecondsRef.current = 0;
+      }
+      const isOffTask = offTaskSecondsRef.current >= OFF_TASK_IDLE_SEC;
+
+      // Final idle verdict: ANY one signal is sufficient
+      engineIdleRef.current = isAbsent || isPhysicallyIdle || isOffTask;
+
+      // ── Wellness Track (SEPARATE from Idle) ────────────────────────────────
+      // Only log wellness events when a session is running and NOT on BREAK.
+      // Break time is private — we do not monitor during breaks.
+      //
+      // THROTTLING RULES (prevents score-spamming from high-freq engine frames):
+      //   • DROWSY / DISTRACTED : Edge-trigger only — fires ONCE when status changes
+      //                           into that state. Not on every frame.
+      //   • YAWN               : 10-second cooldown between successive yawn events.
+      //   • BAD_POSTURE        : Accumulates time in bad posture; fires once per
+      //                          60 continuous seconds, then resets.
+      //   • FOCUSED (reward)   : +2 pts awarded once every 5 uninterrupted focused
+      //                          minutes. Timer resets if focus breaks.
+      const session = workSessionRef.current;
+      if (session?.running && session?.workStatus !== 'BREAK' && session?.sessionId && employee?._id) {
+        const wt     = wellnessThrottleRef.current;
+        const nowMs  = Date.now();
+        const currentStatus = data.status; // 'Focused','Drowsy','Distracted','Absent','No Camera'
+
+        const fireWellnessEvent = (eventType) => {
+          const currentScore = sessionWellnessScoreRef.current;
+          logWellnessEventApi({
+            empId:        employee._id,
+            sessionId:    session.sessionId,
+            eventType,
+            currentScore,
+          }).then((res) => {
+            if (res?.success && typeof res.newScore === 'number') {
+              sessionWellnessScoreRef.current = res.newScore;
+              setSessionWellnessScore(res.newScore);
+            }
+          }).catch(() => {}); // Non-fatal
+        };
+
+        // ── 1. DROWSY — edge-trigger (only once when transitioning INTO drowsy) ─
+        if (currentStatus === 'Drowsy' && wt.lastStatus !== 'Drowsy') {
+          fireWellnessEvent('DROWSY');
+          wt.focusedStartMs = null; // break any focus streak
+        }
+
+        // ── 2. DISTRACTED — Accumulated Leaky Bucket (fires once per 60s sustained) ────
+        // Avoids punishing "noisy focus" (e.g. 50s distracted, 2s focus, 10s distracted).
+        // Distracted adds time. Focused subtracts time. If it hits 60s, fire penalty.
+        if (currentStatus === 'Distracted') {
+          wt.distractedAccumulatorMs += (elapsedSec * 1000);
+          if (wt.distractedAccumulatorMs >= 60_000) {
+            fireWellnessEvent('DISTRACTED');
+            wt.distractedAccumulatorMs = 0; // reset after firing
+            wt.focusedStartMs = null;
+          }
+        } else if (currentStatus === 'Focused') {
+          // Slowly drain the distraction bucket when focused (leaky bucket)
+          wt.distractedAccumulatorMs = Math.max(0, wt.distractedAccumulatorMs - (elapsedSec * 1000));
+        }
+
+        // ── 3. YAWN — 10-second cooldown between distinct yawn events ────────────
+        if (data.is_yawning === true && wt.lastStatus !== 'YAWNING') {
+          // Only fire if at least 10s since last yawn
+          if (!wt.lastYawnMs || (nowMs - wt.lastYawnMs) > 10_000) {
+            fireWellnessEvent('YAWN');
+            wt.lastYawnMs = nowMs;
+            wt.focusedStartMs = null;
+          }
+        }
+
+        // ── 5. FOCUS STREAK REWARD — +2 pts once every 5 continuous focused mins ─
+        if (currentStatus === 'Focused' && !data.is_yawning) {
+          if (!wt.focusedStartMs) wt.focusedStartMs = nowMs;
+          const focusedMs = nowMs - wt.focusedStartMs;
+          // Award every complete 5-minute streak, not on every frame
+          const streaksEarned = Math.floor(focusedMs / (5 * 60 * 1000));
+          if (streaksEarned > wt.lastStreakCount) {
+            fireWellnessEvent('FOCUSED');
+            wt.lastStreakCount = streaksEarned;
+          }
+        } else if (currentStatus !== 'Focused') {
+          // Focus broken — reset the streak timer and counter
+          wt.focusedStartMs  = null;
+          wt.lastStreakCount = 0;
+        }
+
+        // Always update the last known status for edge-detection next frame
+        wt.lastStatus = currentStatus;
+      }
     });
-    return () => { if (unsub) unsub(); };
+    return () => {
+      if (unsub) unsub();
+      // Reset timer state on unmount to prevent stale accumulation on re-mount
+      offTaskSecondsRef.current    = 0;
+      lastTelemetryTimeRef.current = null;
+      wellnessThrottleRef.current  = {
+        lastStatus: null, lastYawnMs: null,
+        distractedAccumulatorMs: 0, focusedStartMs: null, lastStreakCount: 0,
+      };
+    };
   }, []);
 
   // ===== WORK SESSION METHODS =====
@@ -129,6 +270,18 @@ export const SessionProvider = ({ children }) => {
       workStatus: "WORKING",
     });
     lastLivenessCheckAtRef.current = 0;
+    // Reset wellness score for every new session
+    sessionWellnessScoreRef.current = 100;
+    setSessionWellnessScore(100);
+    // Reset all throttle state for clean slate
+    wellnessThrottleRef.current = {
+      lastStatus:              null,
+      lastYawnMs:              null,
+      distractedAccumulatorMs: 0,
+      focusedStartMs:          null,
+      lastStreakCount:         0,
+    };
+    engineIdleRef._lastStatus = undefined; // reset biometric state tracking
   }, [updateWorkSession]);
 
   const startEngineForSession = useCallback((sessionId) => {
@@ -187,6 +340,13 @@ export const SessionProvider = ({ children }) => {
   }, [updateWorkSession]);
 
   const stopWorkSession = useCallback(() => {
+    // Finalize and persist the wellness score BEFORE clearing session state
+    const endingSessionId = workSessionRef.current?.sessionId;
+    const finalScore      = sessionWellnessScoreRef.current;
+    if (endingSessionId) {
+      finalizeWellnessApi({ sessionId: endingSessionId, finalScore }).catch(() => {});
+    }
+
     updateWorkSession({
       running: false,
       sessionId: null,
@@ -207,6 +367,7 @@ export const SessionProvider = ({ children }) => {
       window.electronAPI.engine.setSessionCtx(null);
       setEngineTelemetry(null);
       engineIdleRef.current = false;
+      engineIdleRef._lastStatus = undefined;
     }
   }, [updateWorkSession]);
 
@@ -248,7 +409,10 @@ export const SessionProvider = ({ children }) => {
   useEffect(() => {
     if (!workSessionState.running) return;
 
-    const idleThresholdMs = workSessionState.focusMode ? 30 * 60 * 1000 : 10 * 60 * 1000;
+    // Idle thresholds — how long physical inactivity is tolerated before marking Idle.
+    // Normal Mode : 2 minutes (responsive to short distractions)
+    // Focus Mode  : 5 minutes (allows deep reading/thinking without penalty)
+    const idleThresholdMs = workSessionState.focusMode ? 5 * 60 * 1000 : 2 * 60 * 1000;
 
     const tick = setInterval(() => {
       const status = workSessionRef.current.workStatus;
@@ -405,6 +569,42 @@ export const SessionProvider = ({ children }) => {
 
     return () => clearInterval(save);
   }, [workSessionState.running, workSessionState.sessionId]);
+
+  // ===== WELLNESS SYNC (every 60 s while session is running) =====
+  // Pushes the latest cognitive/kinematic engine metrics to the server so
+  // the Focus Score calculation uses real biometric data, not just time ratios.
+  // Uses a ref snapshot to avoid stale closure over engineTelemetry state.
+  const engineTelemetryRef = useRef(null);
+  useEffect(() => {
+    engineTelemetryRef.current = engineTelemetry;
+  }, [engineTelemetry]);
+
+  useEffect(() => {
+    if (!workSessionState.running || !workSessionState.sessionId || !employee?.empId) return;
+
+    const sync = setInterval(async () => {
+      const telemetry = engineTelemetryRef.current;
+      if (!telemetry) return; // engine not running or not in Electron
+      try {
+        await wellnessSyncApi({
+          empId:            employee.empId,
+          strainScore:      telemetry.strain_score       ?? 0,
+          flowDurationMins: telemetry.flow_duration_mins ?? 0,
+          isFragmented:     telemetry.is_fragmented      ?? false,
+          isIdle:           engineIdleRef.current,
+          // Biometric signals (0 when camera is off)
+          ear:              telemetry.ear                ?? 0,
+          isYawning:        telemetry.is_yawning         ?? false,
+          status:           telemetry.status             ?? 'Unknown',
+        });
+      } catch (err) {
+        // Non-fatal: wellness sync failure should never break the session
+        console.warn("[Wellness] Sync failed (non-fatal):", err);
+      }
+    }, 60_000); // every 60 seconds
+
+    return () => clearInterval(sync);
+  }, [workSessionState.running, workSessionState.sessionId, employee?.empId]);
 
   // Login - store tokens and employee data
   const login = useCallback((empData, accessTok, refreshTok) => {
@@ -638,6 +838,9 @@ export const SessionProvider = ({ children }) => {
         handleLivenessVerified,
         handleLivenessTimeout,
 
+        // Per-session wellness score (0-100, resets on every session start)
+        // Employee-private — do NOT pass this to any admin-facing component.
+        sessionWellnessScore,
       }}
     >
       {children}

@@ -73,10 +73,20 @@ const dailyActivitySchema = new mongoose.Schema(
     sessions: [{ type: mongoose.Schema.Types.ObjectId, ref: "Session" }],
 
     // ── Work Quality Insights ─────────────────────────────────────────────────
-    firstLogin:        { type: Date, default: null },
-    lastActivity:      { type: Date, default: null },
+    firstLogin:        { type: Date,   default: null },
+    lastActivity:      { type: Date,   default: null },
     averageFocusScore: { type: Number, default: 0 },
     distractionCount:  { type: Number, default: 0 },
+
+    // ── Biometric Wellness (accumulated from 60-s wellness-sync pings) ────────
+    // averageStrainScore: rolling average of cognitive_tracker strain_score (0–1)
+    averageStrainScore:   { type: Number, default: 0 },
+    // totalDistractions: cumulative count of away-from-screen events this day
+    totalDistractions:    { type: Number, default: 0 },
+    // flowDurationMins: highest single uninterrupted Deep-Work block this day (minutes)
+    flowDurationMins:     { type: Number, default: 0 },
+    // wellnessPingCount: number of wellness syncs received (used to compute rolling avg)
+    wellnessPingCount:    { type: Number, default: 0 },
 
     // ── Final Daily Verdict ───────────────────────────────────────────────────
     attendanceResult: {

@@ -98,6 +98,9 @@ const Navbar = () => {
           <Link to="/attendance-summary" style={itemStyle("/attendance-summary")}>
             Attendance
           </Link>
+          <Link to="/wellness-insights" style={itemStyle("/wellness-insights")}>
+            Wellness
+          </Link>
           <Link to="/testing" style={itemStyle("/testing")}>
             🧪 Testing
           </Link>

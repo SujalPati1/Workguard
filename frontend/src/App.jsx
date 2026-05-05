@@ -10,7 +10,8 @@ import ConsentSetup    from "./pages/ConsentSetup.jsx";
 import WorkSession     from "./pages/WorkSession.jsx";
 import WorkReport      from "./pages/WorkReport.jsx";
 import AttendanceSummary from "./pages/AttendanceSummary.jsx";
-import Testing         from "./pages/Testing.jsx";
+import WellnessInsights  from "./pages/WellnessInsights.jsx";
+import Testing           from "./pages/Testing.jsx";
 
 import { useSession } from "./context/SessionContext.jsx";
 
@@ -76,6 +77,9 @@ const App = () => {
           />
           <Route path="/attendance-summary"
             element={<PrivateRoute><AttendanceSummary /></PrivateRoute>}
+          />
+          <Route path="/wellness-insights"
+            element={<PrivateRoute><WellnessInsights /></PrivateRoute>}
           />
           <Route path="/testing"
             element={<PrivateRoute><Testing /></PrivateRoute>}

@@ -47,6 +47,9 @@ app.use("/api/telemetry", require("./routes/telemetryRoutes"));
 // Admin — /api/admin/employees
 app.use("/api/admin", require("./routes/adminRoutes"));
 
+// Wellness insights (employee-private) — /api/wellness/event, /session/:id, /sessions/:empId
+app.use("/api/wellness", require("./routes/wellnessRoutes"));
+
 // Health check
 app.get("/health", (req, res) => {
   res.status(200).json({ success: true, message: "Server is running" });

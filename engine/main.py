@@ -1,4 +1,4 @@
-﻿# engine/main.py
+# engine/main.py
 import zmq
 import time
 import json
@@ -124,9 +124,11 @@ context_poller = WindowContextPoller(poll_interval=1.0)
 kinematic_sensor = KinematicSensor()
 cognitive_tracker = CognitiveTracker()
 
+# ── Kinematics ALWAYS starts — it is privacy-safe (timestamps only, no content)
+# It is the baseline idle detector even when app-context tracking is disabled.
+kinematic_sensor.start()
 if tracking_enabled:
     context_poller.start()
-    kinematic_sensor.start()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. MAIN LOOP
@@ -185,9 +187,10 @@ try:
                     print("ENGINE CMD: Tracking enabled via live consent.", flush=True)
                 elif track_enabled is False and tracking_enabled:
                     tracking_enabled = False
+                    # ONLY stop the context poller — kinematics must keep running
+                    # so that is_idle detection works even with tracking off.
                     context_poller.stop()
-                    kinematic_sensor.stop()
-                    print("ENGINE CMD: Tracking disabled via live consent.", flush=True)
+                    print("ENGINE CMD: Tracking disabled via live consent (kinematics remains active).", flush=True)
 
             elif action == "shutdown":
                 _shutdown()
@@ -334,7 +337,14 @@ try:
                 "category": "Disabled",
                 "timestamp": current_time
             }
-            data_out["kinematic"] = {"apm": 0, "cadence_variance": 0.0, "is_idle": True}
+            # Kinematics always runs — emit real is_idle, but zero cadence_variance
+            # to honour privacy (no typing rhythm when tracking is off).
+            raw_kinematic = kinematic_sensor.get_metrics()
+            data_out["kinematic"] = {
+                "apm":              raw_kinematic["apm"],
+                "cadence_variance": 0.0,          # anonymised when tracking off
+                "is_idle":          raw_kinematic["is_idle"],
+            }
             data_out["focus_score"] = 0
             data_out["fatigue_score"] = 0
 

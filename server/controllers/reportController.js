@@ -29,6 +29,7 @@ const deriveFocusScore = (activeSeconds, totalDuration) => {
   return Math.min(100, Math.round((activeSeconds / totalDuration) * 100));
 };
 
+
 /**
  * Productivity score = (activeTime + waitingTime) / totalDuration * 100
  */
@@ -130,6 +131,11 @@ exports.getTodayReport = async (req, res) => {
       livenessSlots: daily?.livenessSlots || [],
       totalLivenessPassed: daily?.totalLivenessPassed || 0,
       complianceScore: daily?.complianceScore || 0,
+
+      // Wellness metrics (from DailyActivity — accumulated via wellness-sync pings)
+      averageStrainScore:  daily?.averageStrainScore  || 0,
+      totalDistractions:   daily?.totalDistractions   || 0,
+      flowDurationMins:    daily?.flowDurationMins     || 0,
 
       // Thresholds for progress calculation
       presentThreshold: parseInt(process.env.PRESENT_ACTIVE_SECONDS || "360", 10),

@@ -64,3 +64,75 @@ exports.recordLiveness = async (req, res) => {
     });
   }
 };
+
+/**
+ * POST /api/telemetry/wellness
+ *
+ * Called by the React frontend every 60 seconds during an active work session.
+ * Accumulates biometric wellness signals into the DailyActivity record so that
+ * the Focus Score calculation has real quality data, not just time ratios.
+ *
+ * Body: {
+ *   empId,
+ *   strainScore,      // float 0-1  — cognitive_tracker output
+ *   flowDurationMins, // int        — current continuous deep-work block
+ *   isFragmented,     // bool       — strain above fragmentation threshold
+ *   isIdle,           // bool       — multi-signal idle verdict from SessionContext
+ *   ear,              // float 0-1  — eye aspect ratio (0 if camera off)
+ *   isYawning,        // bool
+ *   status,           // string     — 'Focused'/'Drowsy'/'Distracted'/'Absent'/'Unknown'
+ * }
+ */
+exports.wellnessSync = async (req, res) => {
+  try {
+    const {
+      empId,
+      strainScore      = 0,
+      flowDurationMins = 0,
+      isFragmented     = false,
+      isIdle           = false,
+      status           = "Unknown",
+    } = req.body;
+
+    if (!empId) {
+      return res.status(400).json({ success: false, message: "empId is required" });
+    }
+
+    const daily = await getOrCreateDaily(empId);
+
+    // ── Rolling average for strain score ─────────────────────────────────────
+    // Formula: new_avg = (old_avg * n + new_value) / (n + 1)
+    const n = daily.wellnessPingCount || 0;
+    daily.averageStrainScore = ((daily.averageStrainScore * n) + strainScore) / (n + 1);
+    daily.wellnessPingCount  = n + 1;
+
+    // ── Max flow duration seen so far today ──────────────────────────────────
+    if (flowDurationMins > (daily.flowDurationMins || 0)) {
+      daily.flowDurationMins = flowDurationMins;
+    }
+
+    // ── Distraction count: increment when employee was absent from camera ─────
+    // isIdle covers all signals (camera absent + kinematic + off-task)
+    if (isIdle || status === "Absent" || status === "Distracted") {
+      daily.totalDistractions = (daily.totalDistractions || 0) + 1;
+    }
+
+    daily.lastActivity = new Date();
+    await daily.save();
+
+    return res.status(200).json({
+      success:            true,
+      message:            "Wellness synced",
+      averageStrainScore: daily.averageStrainScore,
+      flowDurationMins:   daily.flowDurationMins,
+      totalDistractions:  daily.totalDistractions,
+    });
+  } catch (err) {
+    console.error("wellnessSync error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error syncing wellness data",
+      error: err.message,
+    });
+  }
+};
