@@ -95,13 +95,14 @@ const Navbar = () => {
           <Link to="/report" style={itemStyle("/report")}>
             Report
           </Link>
-          <Link
-            to="/attendance-summary"
-            style={itemStyle("/attendance-summary")}
-          >
+          <Link to="/attendance-summary" style={itemStyle("/attendance-summary")}>
             Attendance
           </Link>
+          <Link to="/testing" style={itemStyle("/testing")}>
+            🧪 Testing
+          </Link>
         </div>
+
       </div>
 
       {/* BOTTOM USER PROFILE SECTION */}

@@ -59,7 +59,7 @@ exports.getConsent = async (req, res) => {
         message: "No consent record found",
       });
     }
-    console.log(found);
+    
     return res.status(200).json({
       success: true,
       data: found,

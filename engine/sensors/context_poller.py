@@ -197,8 +197,15 @@ class WindowContextPoller:
 
     def start(self) -> None:
         """Start the background polling thread."""
-        if self._thread.is_alive():
+        if getattr(self, "_thread", None) and self._thread.is_alive():
             return
+            
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._poll_loop,
+            name="WindowContextPoller",
+            daemon=True,
+        )
         self._thread.start()
         print("[ContextPoller] Started.", flush=True)
 

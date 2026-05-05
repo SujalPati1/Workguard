@@ -5,13 +5,16 @@ import App from "./App.jsx";
 import "./index.css";
 
 import { SessionProvider } from "./context/SessionContext.jsx";
+import { LivenessProvider } from "./context/LivenessEngine.jsx";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <SessionProvider>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
+      <LivenessProvider>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </LivenessProvider>
     </SessionProvider>
   </React.StrictMode>
 );

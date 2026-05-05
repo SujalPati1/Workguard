@@ -4,6 +4,8 @@ import {
   getTodayReportApi,
   getAttendanceSummaryApi,
 } from "../api/reportApi.js";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 
 const WorkReport = () => {
   const { employee } = useSession();
@@ -18,9 +20,10 @@ const WorkReport = () => {
   // ─── Formatters ────────────────────────────────────────────────────────────
   const formatTime = (secs) => {
     const s = Math.max(0, Number(secs) || 0);
-    const mins = Math.floor(s / 60);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
     const sec = s % 60;
-    return `${mins} min ${sec} sec`;
+    return h > 0 ? `${h}h ${m}m ${sec}s` : `${m} min ${sec} sec`;
   };
 
   const formatHHMM = (sec) => {
@@ -92,15 +95,111 @@ const WorkReport = () => {
     }
   };
 
-  // ─── Download PDF — uses browser's built-in print dialog ──────────────────
-  // pdfkit is Node-only and won't work in a browser.
-  // window.print() works everywhere and the user can "Save as PDF" from the dialog.
-  const downloadPDF = () => {
-    if (!report) {
+  // ─── Download PDF — Uses jsPDF for a structured document ──────────────────
+  const downloadPDF = async () => {
+    console.log("Download button clicked. Report:", report);
+    if (!report || !employee) {
       setMsg("Generate a report first before downloading.");
       return;
     }
-    window.print();
+
+    try {
+      console.log("Initializing jsPDF...");
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.width;
+
+      // 1. Header & Title
+      doc.setFontSize(22);
+      doc.setTextColor(37, 99, 235); // Blue
+      doc.text("WORKGUARD", 15, 20);
+      
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text("Professional Work Activity Report", 15, 26);
+      doc.text(`Generated: ${new Date().toLocaleString()}`, pageWidth - 15, 26, { align: "right" });
+
+      doc.setDrawColor(200);
+      doc.line(15, 30, pageWidth - 15, 30);
+
+      // 2. Employee Info
+      doc.setFontSize(12);
+      doc.setTextColor(0);
+      doc.setFont("helvetica", "bold");
+      doc.text("Employee Information", 15, 42);
+      
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.text(`Name: ${employee.fullName || "N/A"}`, 15, 48);
+      doc.text(`Employee ID: ${employee.empId}`, 15, 53);
+      doc.text(`Report Date: ${report.date}`, 15, 58);
+
+      // 3. Performance Summary
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.text("Performance Metrics", 15, 72);
+
+      const metrics = [
+        ["Total Logged", formatTime(report.totalLoggedTime)],
+        ["Active Time", formatTime(report.activeTime)],
+        ["Idle Time", formatTime(report.idleTime)],
+        ["Productivity Score", `${report.productivityScore}%`],
+        ["Focus Score", `${report.focusScore}%`],
+        ["Burnout Risk", report.burnoutRisk || "Low"]
+      ];
+
+      autoTable(doc, {
+        startY: 76,
+        head: [["Metric", "Value"]],
+        body: metrics,
+        theme: "striped",
+        headStyles: { fillColor: [37, 99, 235] },
+        styles: { fontSize: 10, cellPadding: 4 }
+      });
+
+      // 4. Session History (if summary data exists)
+      if (summary && summary.sessions && summary.sessions.length > 0) {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(12);
+        doc.text("Recent Session History", 15, doc.lastAutoTable.finalY + 15);
+
+        const sessionData = summary.sessions.slice(0, 10).map(s => [
+          new Date(s.sessionStart).toLocaleDateString(),
+          formatHHMM(s.activeSeconds || 0),
+          formatHHMM(s.idleSeconds || 0),
+          s.workStatus || "WORKING"
+        ]);
+
+        autoTable(doc, {
+          startY: doc.lastAutoTable.finalY + 20,
+          head: [["Date", "Active", "Idle", "Status"]],
+          body: sessionData,
+          theme: "grid",
+          headStyles: { fillColor: [71, 85, 105] },
+          styles: { fontSize: 9 }
+        });
+      }
+
+      // 5. Footer
+      const totalPages = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(150);
+        doc.text(
+          "This report is an automated summary of digital activity and wellness metrics provided by WorkGuard.",
+          pageWidth / 2,
+          doc.internal.pageSize.height - 10,
+          { align: "center" }
+        );
+        doc.text(`Page ${i} of ${totalPages}`, pageWidth - 15, doc.internal.pageSize.height - 10, { align: "right" });
+      }
+
+      doc.save(`WorkGuard_Report_${employee.empId}_${report.date}.pdf`);
+      setMsg("Report downloaded successfully.");
+    } catch (err) {
+      console.error("PDF generation error:", err);
+      setMsg(`Error generating PDF: ${err.message}`);
+    }
   };
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -188,7 +287,7 @@ const WorkReport = () => {
 
             {/* Recent logs preview */}
             <div className="wg-recent-box">
-              <h4 className="wg-recent-title">🗓 Recent Sessions</h4>
+              <h4 className="wg-recent-title">Recent Sessions</h4>
 
               <div className="wg-recent-list">
                 {summary.sessions?.slice(0, 4).map((s) => (
@@ -207,7 +306,7 @@ const WorkReport = () => {
                     </div>
 
                     <div className="wg-pill">
-                      {s.attendanceResult || s.workStatus || "WORKING"}
+                      {s.workStatus || "WORKING"}
                     </div>
                   </div>
                 ))}
@@ -224,7 +323,7 @@ const WorkReport = () => {
       {/* Report section */}
       <div className="wg-section">
         <div className="wg-section-top">
-          <h3 className="wg-section-title">Today's Work Report</h3>
+          <h3 className="wg-section-title">Daily Work Report</h3>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <button
@@ -288,8 +387,10 @@ const WorkReport = () => {
         .wg-report-page{
           padding: 22px 26px;
           min-height: calc(100vh - 64px);
-          background: #f6f7fb;
-          font-family: "Times New Roman", Times, serif;
+          background: #f8fafc;
+          font-family: "Inter", "Segoe UI", Roboto, sans-serif;
+          color: #1e293b;
+          line-height: 1.5;
         }
 
         .wg-report-head{
@@ -297,26 +398,29 @@ const WorkReport = () => {
           justify-content:space-between;
           align-items:flex-start;
           gap:18px;
-          margin-bottom: 18px;
+          margin-bottom: 24px;
         }
 
         .wg-report-title{
           margin: 0;
-          font-size: 30px;
-          font-weight: 900;
+          font-size: 28px;
+          font-weight: 800;
           color: #0f172a;
+          letter-spacing: -0.02em;
         }
 
         .wg-report-sub{
-          margin-top: 8px;
-          font-weight: 800;
+          margin-top: 6px;
+          font-weight: 600;
           color: #16a34a;
+          font-size: 15px;
         }
 
         .wg-report-emp{
-          margin-top: 8px;
-          font-weight: 800;
-          color: #334155;
+          margin-top: 10px;
+          font-weight: 500;
+          color: #64748b;
+          font-size: 14px;
         }
 
         .wg-att-badge-wrap{
@@ -327,33 +431,35 @@ const WorkReport = () => {
         }
 
         .wg-att-badge{
-          width: 62px;
-          height: 62px;
+          width: 64px;
+          height: 64px;
           border-radius: 999px;
           display:flex;
           align-items:center;
           justify-content:center;
-          font-weight: 900;
-          color: #0b1220;
-          background: linear-gradient(135deg, #60a5fa, #a78bfa, #34d399);
-          box-shadow: 0 18px 40px rgba(0,0,0,0.18);
-          font-size: 14px;
+          font-weight: 800;
+          color: #ffffff;
+          background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+          box-shadow: 0 10px 25px rgba(59, 130, 246, 0.2);
+          font-size: 15px;
         }
 
         .wg-att-badge-text{
           margin:0;
-          font-weight: 900;
-          color: #334155;
-          font-size: 13px;
+          font-weight: 700;
+          color: #475569;
+          font-size: 12px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
         }
 
         .wg-section{
-          background: rgba(255,255,255,0.96);
-          border: 1px solid rgba(15,23,42,0.08);
-          border-radius: 18px;
-          padding: 16px;
-          box-shadow: 0 18px 45px rgba(15,23,42,0.08);
-          margin-top: 16px;
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
+          border-radius: 16px;
+          padding: 24px;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+          margin-top: 24px;
         }
 
         .wg-section-top{
@@ -362,106 +468,118 @@ const WorkReport = () => {
           justify-content:space-between;
           gap:14px;
           flex-wrap: wrap;
+          margin-bottom: 20px;
         }
 
         .wg-section-title{
           margin: 0;
           font-size: 18px;
-          font-weight: 900;
+          font-weight: 700;
           color: #0f172a;
         }
 
         .wg-summary-grid{
-          margin-top: 14px;
           display:grid;
           grid-template-columns: repeat(4, 1fr);
-          gap: 12px;
+          gap: 16px;
         }
 
         .wg-card{
-          border-radius: 16px;
-          padding: 14px;
-          background: rgba(15,23,42,0.04);
-          border: 1px solid rgba(15,23,42,0.06);
+          border-radius: 12px;
+          padding: 16px;
+          background: #f1f5f9;
+          border: 1px solid #e2e8f0;
+          transition: transform 0.2s;
         }
 
         .wg-card-title{
           margin: 0;
-          font-weight: 900;
-          color: #334155;
+          font-weight: 600;
+          color: #64748b;
           font-size: 13px;
         }
 
         .wg-card-big{
-          margin: 8px 0 6px;
-          font-weight: 900;
+          margin: 8px 0 4px;
+          font-weight: 800;
           color: #0f172a;
-          font-size: 26px;
+          font-size: 24px;
         }
 
         .wg-card-sub{
           margin: 0;
-          color: #64748b;
-          font-weight: 700;
-          font-size: 13px;
+          color: #94a3b8;
+          font-weight: 500;
+          font-size: 12px;
         }
 
         .wg-recent-box{
-          margin-top: 14px;
-          border-radius: 16px;
-          padding: 14px;
-          background: rgba(255,255,255,0.7);
-          border: 1px solid rgba(15,23,42,0.06);
+          margin-top: 24px;
+          border-radius: 12px;
+          padding: 20px;
+          background: #ffffff;
+          border: 1px solid #f1f5f9;
         }
 
         .wg-recent-title{
-          margin: 0;
-          font-weight: 900;
+          margin: 0 0 16px 0;
+          font-weight: 700;
           color: #0f172a;
+          font-size: 16px;
         }
 
         .wg-recent-list{
-          margin-top: 10px;
           display:grid;
-          gap: 10px;
+          gap: 12px;
         }
 
         .wg-recent-item{
           display:flex;
           justify-content:space-between;
           gap:12px;
-          padding: 12px;
-          border-radius: 14px;
-          background: rgba(15,23,42,0.04);
-          border: 1px solid rgba(15,23,42,0.06);
+          padding: 14px;
+          border-radius: 12px;
+          background: #f8fafc;
+          border: 1px solid #f1f5f9;
         }
 
         .wg-pill{
           height: fit-content;
-          padding: 6px 10px;
+          padding: 4px 12px;
           border-radius: 999px;
-          background: rgba(99,102,241,0.12);
-          border: 1px solid rgba(99,102,241,0.18);
-          font-weight: 900;
-          font-size: 12px;
-          color: #3730a3;
+          background: #e0f2fe;
+          border: 1px solid #bae6fd;
+          font-weight: 700;
+          font-size: 11px;
+          color: #0369a1;
           white-space: nowrap;
+          text-transform: uppercase;
         }
 
         .wg-note{
-          margin: 6px 0 0;
+          margin: 8px 0 0;
           font-style: italic;
-          font-weight: 800;
-          color: #0f172a;
+          font-weight: 500;
+          color: #475569;
+          font-size: 13px;
+          border-left: 2px solid #e2e8f0;
+          padding-left: 8px;
         }
 
         .wg-btn{
-          padding: 10px 14px;
-          border-radius: 14px;
-          border: 1px solid rgba(15,23,42,0.12);
+          padding: 10px 20px;
+          border-radius: 10px;
+          border: 1px solid #e2e8f0;
           background: white;
-          font-weight: 900;
+          font-weight: 600;
+          font-size: 14px;
           cursor:pointer;
+          transition: all 0.2s;
+        }
+
+        .wg-btn:hover:not(:disabled) {
+          background: #f8fafc;
+          border-color: #cbd5e1;
         }
 
         .wg-btn:disabled{
@@ -471,8 +589,12 @@ const WorkReport = () => {
 
         .wg-btn-primary{
           border: none;
-          background: linear-gradient(135deg, #60a5fa, #a78bfa, #34d399);
-          color: #0b1220;
+          background: #2563eb;
+          color: #ffffff;
+        }
+
+        .wg-btn-primary:hover:not(:disabled) {
+          background: #1d4ed8;
         }
 
         .wg-btn-success{
@@ -481,29 +603,49 @@ const WorkReport = () => {
           color: white;
         }
 
-        .wg-btn-light{
-          background: rgba(15,23,42,0.04);
+        .wg-btn-success:hover:not(:disabled) {
+          background: #15803d;
         }
 
         .wg-msg{
-          margin-top: 12px;
-          font-weight: 900;
-          color: #0f172a;
+          margin-top: 16px;
+          font-weight: 600;
+          color: #2563eb;
+          font-size: 14px;
         }
 
         .wg-muted{
-          margin-top: 10px;
-          font-weight: 700;
-          color: #64748b;
+          font-weight: 500;
+          color: #94a3b8;
+          font-size: 14px;
         }
 
         .wg-report-card{
-          margin-top: 14px;
-          padding: 14px;
+          margin-top: 20px;
+          padding: 24px;
           border-radius: 16px;
-          background: rgba(15,23,42,0.04);
-          border: 1px solid rgba(15,23,42,0.06);
-          max-width: 520px;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          max-width: 600px;
+        }
+
+        .wg-report-card h3 {
+          margin-top: 0;
+          font-size: 18px;
+          color: #0f172a;
+          margin-bottom: 16px;
+        }
+
+        .wg-report-card p {
+          margin: 8px 0;
+          font-size: 14px;
+          color: #475569;
+        }
+
+        .wg-report-card hr {
+          border: 0;
+          border-top: 1px solid #e2e8f0;
+          margin: 16px 0;
         }
 
         @media(max-width: 1100px){
@@ -518,6 +660,7 @@ const WorkReport = () => {
         @media print {
           .wg-btn, .wg-section-top button { display: none !important; }
           .wg-report-page { background: white; padding: 0; }
+          .wg-section { box-shadow: none; border: 1px solid #eee; }
         }
       `}</style>
     </div>

@@ -38,6 +38,12 @@ app.use("/attendance", require("./routes/session.routes"));
 // Work Report & Attendance Summary — /api/report/today/:empId, /summary/:empId, etc.
 app.use("/api/report", require("./routes/reportRoutes"));
 
+// DailyActivity — /api/daily/liveness, /sync, /today/:empId, /liveness-status/:empId
+app.use("/api/daily", require("./routes/dailyActivityRoutes"));
+
+// Biometric telemetry from Electron — /api/telemetry/liveness
+app.use("/api/telemetry", require("./routes/telemetryRoutes"));
+
 // Admin — /api/admin/employees
 app.use("/api/admin", require("./routes/adminRoutes"));
 

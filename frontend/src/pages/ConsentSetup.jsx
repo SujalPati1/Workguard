@@ -63,6 +63,9 @@ const ConsentSetup = () => {
     }
   }, [employee]);
 
+  // Context hook functions to sync with SessionContext
+  const { setConsent: setGlobalConsent, workSessionState } = useSession();
+
   const handleToggle = (key) => {
     setConsent((prev) => ({
       ...prev,
@@ -86,6 +89,15 @@ const ConsentSetup = () => {
         const days = parseInt(retention.split(' ')[0]);
         setMessage(`✅ Changes saved to DB. Data will be stored for ${days} days.`);
         await loadConsent(); // Reload data after save
+        
+        // Update the global context
+        setGlobalConsent(payload);
+        
+        // If a work session is running and Electron is available, force the camera & tracking state dynamically
+        const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
+        if (isElectron && workSessionState?.running) {
+          window.electronAPI.engine.updateConsent(payload);
+        }
       } else {
         setMessage(`⚠️ Unable to save: ${response.message || "Unknown error"}`);
       }

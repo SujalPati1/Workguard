@@ -1,14 +1,16 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import React from "react";
 
-import Navbar from "./components/Navbar.jsx";
-import Dashboard from "./pages/Dashboard.jsx";
-import Login from "./pages/Login.jsx";
-import Register from "./pages/Register.jsx";
-import ConsentSetup from "./pages/ConsentSetup.jsx";
-import WorkSession from "./pages/WorkSession.jsx";
-import WorkReport from "./pages/WorkReport.jsx";
+import Navbar          from "./components/Navbar.jsx";
+import LivenessModal   from "./components/LivenessModal.jsx";
+import Dashboard       from "./pages/Dashboard.jsx";
+import Login           from "./pages/Login.jsx";
+import Register        from "./pages/Register.jsx";
+import ConsentSetup    from "./pages/ConsentSetup.jsx";
+import WorkSession     from "./pages/WorkSession.jsx";
+import WorkReport      from "./pages/WorkReport.jsx";
 import AttendanceSummary from "./pages/AttendanceSummary.jsx";
+import Testing         from "./pages/Testing.jsx";
 
 import { useSession } from "./context/SessionContext.jsx";
 
@@ -28,7 +30,15 @@ const CatchAllRoute = () => {
 };
 
 const App = () => {
-  const { employee } = useSession();
+  const {
+    employee,
+    livenessModalOpen,
+    currentLivenessSlot,
+    livenessResponseWindowMs,
+    handleLivenessVerified,
+    handleLivenessTimeout,
+  } = useSession();
+
   const showSidebar = !!employee;
 
   return (
@@ -48,41 +58,50 @@ const App = () => {
         }}
       >
         <Routes>
-          <Route path="/" element={<Navigate to="/login" />} />
-          <Route path="/login" element={<LoginRoute element={<Login />} />} />
-          <Route path="/register" element={<LoginRoute element={<Register />} />} />
+          <Route path="/"          element={<Navigate to="/login" />} />
+          <Route path="/login"     element={<LoginRoute element={<Login />} />} />
+          <Route path="/register"  element={<LoginRoute element={<Register />} />} />
 
-          <Route
-            path="/dashboard"
+          <Route path="/dashboard"
             element={<PrivateRoute><Dashboard /></PrivateRoute>}
           />
-
-          <Route
-            path="/consent"
+          <Route path="/consent"
             element={<PrivateRoute><ConsentSetup /></PrivateRoute>}
           />
-
-          <Route
-            path="/session"
+          <Route path="/session"
             element={<PrivateRoute><WorkSession /></PrivateRoute>}
           />
-
-          <Route
-            path="/report"
+          <Route path="/report"
             element={<PrivateRoute><WorkReport /></PrivateRoute>}
           />
-
-          <Route
-            path="/attendance-summary"
+          <Route path="/attendance-summary"
             element={<PrivateRoute><AttendanceSummary /></PrivateRoute>}
           />
+          <Route path="/testing"
+            element={<PrivateRoute><Testing /></PrivateRoute>}
+          />
 
+          {/* /liveness and /wellness removed — engine runs invisibly */}
           <Route path="*" element={<CatchAllRoute />} />
         </Routes>
       </div>
+
+      {/* GLOBAL LIVENESS MODAL — overlays every page */}
+      {livenessModalOpen && (
+        <LivenessModal
+          slotIndex={currentLivenessSlot}
+          responseWindowMs={livenessResponseWindowMs}
+          onStart={() => {
+            if (typeof window !== 'undefined' && window.electronAPI) {
+              window.electronAPI.engine.requestLiveness();
+            }
+          }}
+          onVerified={handleLivenessVerified}
+          onTimeout={handleLivenessTimeout}
+        />
+      )}
     </div>
   );
 };
-
 
 export default App;

@@ -20,8 +20,15 @@ const formatTime = (sec) => {
 };
 
 const WorkSession = () => {
-  const { employee, workSessionState, updateWorkSession, incrementActiveTime, incrementIdleTime, incrementWaitingTime, incrementBreakTime, setWorkStatus: setWorkStatusCtx, lastActivityRef } = useSession();
+  const {
+    employee, workSessionState, updateWorkSession,
+    setWorkStatus: setWorkStatusCtx, lastActivityRef,
+    livenessModalOpen, livenessChecksDone, livenessSlots,
+    startEngineForSession, triggerLivenessModal,
+    stopWorkSession,
+  } = useSession();
   const navigate = useNavigate();
+
 
   // Destructure from context (persistent across page navigation)
   const running = workSessionState.running;
@@ -63,17 +70,7 @@ const jokes = [
   // ===== LOCAL ACTIVITY BOOST =====
   // The global listener in SessionContext already tracks activity app-wide.
   // This one just ensures clicks/keys ON this page are captured immediately.
-  useEffect(() => {
-    const update = () => { lastActivityRef.current = Date.now(); };
-    window.addEventListener("mousemove", update);
-    window.addEventListener("keydown",   update);
-    window.addEventListener("click",     update);
-    return () => {
-      window.removeEventListener("mousemove", update);
-      window.removeEventListener("keydown",   update);
-      window.removeEventListener("click",     update);
-    };
-  }, [lastActivityRef]);
+  // [REMOVED redundant global listeners; SessionContext handles this now]
 
   const totalTime = activeSec + idleSec + waitingSec + breakSec;
 
@@ -108,6 +105,9 @@ useEffect(() => {
           running: true,
         });
         setStatusMessage("");
+
+        // Start engine. It will read the current consent to decide if camera should be ON
+        startEngineForSession(res.session._id);
       }
     } catch (err) {
       if (err.body?.session?._id) {
@@ -123,6 +123,8 @@ useEffect(() => {
           workStatus: s.workStatus || "WORKING",
           startTime: s.startTime ? new Date(s.startTime).getTime() : Date.now(),
         });
+        // Ensure engine is running even if we recovered a ghost session
+        startEngineForSession(s._id);
       } else {
         console.error("Start session failed", err);
       }
@@ -153,6 +155,9 @@ useEffect(() => {
           startTime: s.startTime ? new Date(s.startTime).getTime() : Date.now(),
         });
         setStatusMessage("");
+        
+        // Ensure engine is running
+        startEngineForSession(s._id);
       }
     } catch (err) {
       if (err.status === 404 || err.body?.message?.includes("No")) {
@@ -164,8 +169,10 @@ useEffect(() => {
     }
   };
 
+  const isStoppingRef = useRef(false);
+
   useEffect(() => {
-    if (!employee?.empId || running || sessionId) return;
+    if (!employee?.empId || running || sessionId || isStoppingRef.current) return;
 
     const restoreSession = async () => {
       try {
@@ -183,6 +190,8 @@ useEffect(() => {
             workStatus: s.workStatus || "WORKING",
             startTime: s.startTime ? new Date(s.startTime).getTime() : Date.now(),
           });
+          // Ensure engine is running
+          startEngineForSession(s._id);
         }
       } catch (err) {
         if (err.status === 404) {
@@ -198,13 +207,13 @@ useEffect(() => {
   }, [employee?.empId, running, sessionId, updateWorkSession]);
 
   const handleStop = async () => {
-    if (!sessionId) return;
+    if (!sessionId || isStoppingRef.current) return;
 
     const confirmStop = window.confirm("Do you really want to end this session?");
     if (!confirmStop) return;
 
-    // Stop timer immediately
-    updateWorkSession({ running: false });
+    isStoppingRef.current = true;
+    setStatusMessage("Stopping session securely...");
 
     try {
       await stopSessionApi({
@@ -215,24 +224,18 @@ useEffect(() => {
         breakSeconds: breakSec,
       });
 
-      // Clear session state
-      updateWorkSession({
-        running: false,
-        sessionId: null,
-        activeSec: 0,
-        idleSec: 0,
-        waitingSec: 0,
-        breakSec: 0,
-        focusMode: false,
-        workStatus: "WORKING",
-      });
+      // Stop timer + engine + clear context only AFTER backend successfully ends it
+      stopWorkSession();
 
       // Redirect to Summary page
-      navigate("/attendance-summary");
+      navigate("/attendance-summary", { replace: true });
     } catch (err) {
       console.error("Stop session failed", err);
+      setStatusMessage("Failed to stop session. Please try again.");
+      isStoppingRef.current = false;
     }
   };
+
   const generateJoke = () => {
     const random = jokes[Math.floor(Math.random() * jokes.length)];
     setCurrentJoke(random);
@@ -265,6 +268,25 @@ useEffect(() => {
           </div>
 
           <div className="ws-header-right">
+            {/* Engine / monitoring status */}
+            {running && (
+              <span style={{
+                padding: "8px 14px", borderRadius: 999, fontSize: 13, fontWeight: 600,
+                background: "#dcfce7", color: "#15803d", display: "flex", alignItems: "center", gap: 6,
+              }}>
+                🟢 Engine Monitoring
+              </span>
+            )}
+            {/* Liveness checks counter */}
+            {running && (
+              <span style={{
+                padding: "8px 14px", borderRadius: 999, fontSize: 13, fontWeight: 600,
+                background: livenessChecksDone >= 3 ? "#dcfce7" : "#e0f2fe",
+                color: livenessChecksDone >= 3 ? "#166534" : "#0369a1",
+              }}>
+                🔐 Verified {livenessChecksDone}/3
+              </span>
+            )}
             <span className={`ws-status ${running ? "active" : "inactive"}`}>
               ● {running ? "Running" : "Inactive"}
             </span>
@@ -273,6 +295,7 @@ useEffect(() => {
             </span>
           </div>
         </div>
+
 
         {statusMessage && (
           <div
@@ -360,20 +383,25 @@ useEffect(() => {
             </div>
           </div>
 
-          <div className="smile-card-enhanced">
+          <div className="ws-card smile-card-enhanced">
 
-  <h3 className="smile-title">Smile Break</h3>
+            <div className="ws-card-head">
+              <span className="icon yellow" style={{ background: "#fef9c3" }}>😊</span>
+              <div>
+                <h3>Smile Break</h3>
+                <p>A light moment to refresh your focus</p>
+              </div>
+            </div>
 
-  <div
-    className={`smile-icon-enhanced ${pulseSmile ? "pulse" : ""}`}
-    onClick={generateJoke}
-  >
-    😊
-  </div>
-
-  <p className="smile-subtext">
-    A light moment to refresh your focus.
-  </p>
+            <div style={{ textAlign: "center", marginTop: "10px" }}>
+              <div
+                className={`smile-icon-enhanced ${pulseSmile ? "pulse" : ""}`}
+                onClick={generateJoke}
+                style={{ marginBottom: "10px" }}
+              >
+                😊
+              </div>
+            </div>
 
   {showJoke && (
     <div className="joke-box-enhanced">

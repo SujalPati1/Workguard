@@ -1,9 +1,6 @@
 const Session = require("../models/Session.model");
 const Consent = require("../models/Consent");
-
-// Shared attendance thresholds — read from env vars so they match reportController.
-const PRESENT_THRESHOLD = parseInt(process.env.PRESENT_ACTIVE_SECONDS || "14400", 10);
-const PARTIAL_THRESHOLD = parseInt(process.env.PARTIAL_ACTIVE_SECONDS || "7200",  10);
+const { getOrCreateDaily, recalcAttendance } = require("./dailyActivityController");
 
 const isSessionStale = (session) => {
   if (!session || !session.startTime) return false;
@@ -24,12 +21,6 @@ const completeStaleSession = async (session) => {
 
   session.endTime = endOfDay;
   session.totalDuration = Math.floor((endOfDay.getTime() - start.getTime()) / 1000);
-
-  let result = "ABSENT";
-  if ((session.activeTime || 0) >= PRESENT_THRESHOLD) result = "PRESENT";
-  else if ((session.activeTime || 0) >= PARTIAL_THRESHOLD) result = "PARTIAL";
-
-  session.attendanceResult = result;
   session.attendanceStatus = "COMPLETED";
   await session.save();
   return session;
@@ -43,15 +34,6 @@ const startSession = async (req, res) => {
     if (!empId) {
       return res.status(400).json({ message: "empId is required" });
     }
-
-    // ✅ Optional: Consent Check (Employee Control)
-    // Uncomment if you want to enforce consent checking
-    // const consent = await Consent.findOne({ empId });
-    // if (!consent || consent.trackingEnabled === false) {
-    //   return res.status(403).json({
-    //     message: "❌ Tracking disabled by employee consent",
-    //   });
-    // }
 
     // ✅ Prevent multiple running sessions
     const existing = await Session.findOne({
@@ -78,10 +60,24 @@ const startSession = async (req, res) => {
       workStatus: workStatus || "WORKING",
     });
 
+    // ✅ Ensure DailyActivity record exists for today and link session
+    const daily = await getOrCreateDaily(empId);
+    if (!daily.sessions.includes(newSession._id)) {
+      daily.sessions.push(newSession._id);
+      daily.sessionCount = daily.sessions.length;
+      if (!daily.firstLogin) daily.firstLogin = new Date();
+      await daily.save();
+    }
+
     return res.status(201).json({
       message: "✅ Session started",
       sessionId: newSession._id,
       session: newSession,
+      dailyActivity: {
+        livenessSlots: daily.livenessSlots,
+        totalLivenessPassed: daily.totalLivenessPassed,
+        attendanceResult: daily.attendanceResult,
+      },
     });
   } catch (error) {
     return res.status(500).json({
@@ -112,24 +108,20 @@ const stopSession = async (req, res) => {
     session.endTime = endTime;
     session.totalDuration = totalSeconds;
 
-    // ✅ Store active & idle time sent from frontend
-    session.activeTime = activeSeconds || 0;
-    session.idleTime = idleSeconds || 0;
-    session.waitingTime = waitingSeconds || 0;
-    session.breakTime = breakSeconds || 0;
+    // ✅ Store time only if provided (preserves checkpoint data on force-quit)
+    if (activeSeconds !== undefined) session.activeTime = activeSeconds;
+    if (idleSeconds !== undefined) session.idleTime = idleSeconds;
+    if (waitingSeconds !== undefined) session.waitingTime = waitingSeconds;
+    if (breakSeconds !== undefined) session.breakTime = breakSeconds;
 
-    // ✅ Calculate attendance result (2 minutes = 120 seconds minimum for PRESENT)
-    let result = "ABSENT";
-    if (session.activeTime >= PRESENT_THRESHOLD) result = "PRESENT";
-    else if (session.activeTime >= PARTIAL_THRESHOLD) result = "PARTIAL";
-
-    session.attendanceResult = result;
     session.attendanceStatus = "COMPLETED";
-
     await session.save();
 
+    // ✅ Sync totals into DailyActivity (aggregate across all today's sessions)
+    await syncDailyFromAllSessions(session.empId);
+
     return res.status(200).json({
-      message: "✅ Session ended + Attendance calculated",
+      message: "✅ Session ended",
       session,
     });
   } catch (error) {
@@ -163,10 +155,18 @@ const resumeSession = async (req, res) => {
       return res.status(404).json({ message: "No paused/in-progress session found" });
     }
 
+    // Also return daily liveness status for the frontend scheduler
+    const daily = await getOrCreateDaily(empId);
+
     return res.status(200).json({
       message: "✅ Session resumed",
       sessionId: session._id,
       session,
+      dailyActivity: {
+        livenessSlots: daily.livenessSlots,
+        totalLivenessPassed: daily.totalLivenessPassed,
+        attendanceResult: daily.attendanceResult,
+      },
     });
   } catch (error) {
     return res.status(500).json({
@@ -209,6 +209,9 @@ const checkpoint = async (req, res) => {
 
     await session.save();
 
+    // ✅ Sync totals into DailyActivity
+    await syncDailyFromAllSessions(session.empId);
+
     return res.status(200).json({
       message: "✅ Checkpoint saved",
       session,
@@ -221,6 +224,55 @@ const checkpoint = async (req, res) => {
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper: aggregate ALL today's sessions into DailyActivity
+// ─────────────────────────────────────────────────────────────────────────────
+const syncDailyFromAllSessions = async (empId) => {
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date();
+  endOfDay.setHours(23, 59, 59, 999);
+
+  // Get ALL of today's sessions (both in-progress and completed)
+  const sessions = await Session.find({
+    empId,
+    startTime: { $gte: startOfDay, $lte: endOfDay },
+  });
+
+  let totalActive = 0;
+  let totalIdle = 0;
+  let totalWaiting = 0;
+  let totalBreak = 0;
+  let totalDuration = 0;
+
+  sessions.forEach((s) => {
+    totalActive += s.activeTime || 0;
+    totalIdle += s.idleTime || 0;
+    totalWaiting += s.waitingTime || 0;
+    totalBreak += s.breakTime || 0;
+    totalDuration += s.totalDuration || (s.attendanceStatus === "IN_PROGRESS"
+      ? Math.floor((Date.now() - new Date(s.startTime).getTime()) / 1000)
+      : 0);
+  });
+
+  const daily = await getOrCreateDaily(empId);
+  daily.totalActiveTime = totalActive;
+  daily.totalIdleTime = totalIdle;
+  daily.totalWaitingTime = totalWaiting;
+  daily.totalBreakTime = totalBreak;
+  daily.totalDuration = totalDuration;
+  daily.sessionCount = sessions.length;
+  daily.sessions = sessions.map((s) => s._id);
+  daily.lastActivity = new Date();
+
+  if (totalDuration > 0) {
+    daily.averageFocusScore = Math.min(100, Math.round((totalActive / totalDuration) * 100));
+  }
+
+  recalcAttendance(daily);
+  await daily.save();
+};
+
 // ✅ GET TODAY REPORT
 const getTodayReport = async (req, res) => {
   try {
@@ -230,55 +282,37 @@ const getTodayReport = async (req, res) => {
       return res.status(400).json({ message: "empId is required" });
     }
 
-    // ✅ Start and end of today
+    // Get DailyActivity — the single source of truth
+    const daily = await getOrCreateDaily(empId);
+
+    // Also get individual sessions for drill-down
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
-
     const endOfDay = new Date();
     endOfDay.setHours(23, 59, 59, 999);
 
-    // ✅ Fetch today's completed sessions
     const sessions = await Session.find({
       empId,
-      attendanceStatus: "COMPLETED",
-      createdAt: { $gte: startOfDay, $lte: endOfDay },
-    });
+      startTime: { $gte: startOfDay, $lte: endOfDay },
+    }).sort({ startTime: 1 });
 
-    let totalWorkTime = 0;
-    let totalActive = 0;
-    let totalIdle = 0;
-    let totalWaiting = 0;
-    let totalBreak = 0;
-
-    sessions.forEach((s) => {
-      totalWorkTime += s.totalDuration || 0;
-      totalActive += s.activeTime || 0;
-      totalIdle += s.idleTime || 0;
-      totalWaiting += s.waitingTime || 0;
-      totalBreak += s.breakTime || 0;
-    });
-
-    // ✅ Focus score (percentage of active time)
-    const focusScore =
-      totalWorkTime > 0 ? Math.round((totalActive / totalWorkTime) * 100) : 0;
-
-    // ✅ Attendance status (2 minutes = 120 seconds minimum for PRESENT)
-    let attendanceStatus = "ABSENT";
-    if (totalActive >= PRESENT_THRESHOLD) attendanceStatus = "PRESENT";
-    else if (totalActive >= PARTIAL_THRESHOLD) attendanceStatus = "PARTIAL";
+    const focusScore = daily.averageFocusScore;
 
     return res.status(200).json({
       empId,
-      date: new Date().toISOString().slice(0, 10),
-      sessionCount: sessions.length,
-      totalWorkTime, // seconds
-      totalActive,
-      totalIdle,
-      totalWaiting,
-      totalBreak,
-      focusScore, // %
-      attendanceStatus,
-      sessions, // All sessions from today
+      date: daily.date,
+      sessionCount: daily.sessionCount,
+      totalWorkTime: daily.totalDuration,
+      totalActive: daily.totalActiveTime,
+      totalIdle: daily.totalIdleTime,
+      totalWaiting: daily.totalWaitingTime,
+      totalBreak: daily.totalBreakTime,
+      focusScore,
+      attendanceStatus: daily.attendanceResult,
+      complianceScore: daily.complianceScore,
+      livenessSlots: daily.livenessSlots,
+      totalLivenessPassed: daily.totalLivenessPassed,
+      sessions,
     });
   } catch (error) {
     return res.status(500).json({
@@ -288,7 +322,7 @@ const getTodayReport = async (req, res) => {
   }
 };
 
-// ✅ GET SESSION BY ID (For viewing single session details)
+// ✅ GET SESSION BY ID
 const getSessionById = async (req, res) => {
   try {
     const { sessionId } = req.params;

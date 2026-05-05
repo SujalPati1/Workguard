@@ -22,17 +22,11 @@ const sessionSchema = new mongoose.Schema(
       default: "WORKING",
     },
 
-    // Attendance tracking
+    // Attendance tracking (session lifecycle only — daily verdict is in DailyActivity)
     attendanceStatus: {
       type: String,
       enum: ["IN_PROGRESS", "COMPLETED", "PAUSED"],
       default: "IN_PROGRESS",
-    },
-
-    attendanceResult: {
-      type: String,
-      enum: ["PRESENT", "PARTIAL", "ABSENT"],
-      default: "ABSENT",
     },
 
     // Checkpoints history

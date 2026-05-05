@@ -1,25 +1,10 @@
 const Session = require("../models/Session.model");
+const DailyActivity = require("../models/DailyActivity");
 const User = require("../models/User");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Derive attendance result from active seconds.
- * Thresholds can be driven by env vars — fall back to sensible defaults.
- *   PRESENT  : activeSeconds >= 4 hours (14 400 s)
- *   PARTIAL  : activeSeconds >= 2 hours (7 200 s)
- *   ABSENT   : below partial threshold
- */
-const PRESENT_THRESHOLD = parseInt(process.env.PRESENT_ACTIVE_SECONDS || "14400", 10);
-const PARTIAL_THRESHOLD = parseInt(process.env.PARTIAL_ACTIVE_SECONDS || "7200", 10);
-
-const deriveAttendanceResult = (activeSeconds) => {
-  if (activeSeconds >= PRESENT_THRESHOLD) return "PRESENT";
-  if (activeSeconds >= PARTIAL_THRESHOLD) return "PARTIAL";
-  return "ABSENT";
-};
 
 /**
  * Compute burnout risk based on active/break ratio.
@@ -46,7 +31,6 @@ const deriveFocusScore = (activeSeconds, totalDuration) => {
 
 /**
  * Productivity score = (activeTime + waitingTime) / totalDuration * 100
- * (waiting is intentional time, not idle)
  */
 const deriveProductivityScore = (activeSeconds, waitingSeconds, totalDuration) => {
   if (!totalDuration || totalDuration <= 0) return 0;
@@ -76,15 +60,18 @@ exports.getTodayReport = async (req, res) => {
     }
 
     // Today's date window
+    const today = new Date().toISOString().slice(0, 10);
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date();
     endOfDay.setHours(23, 59, 59, 999);
 
-    // Fetch today's COMPLETED sessions
+    // Get DailyActivity — the single source of truth for attendance
+    const daily = await DailyActivity.findOne({ empId, date: today });
+
+    // Fetch today's sessions for drill-down
     const sessions = await Session.find({
       empId,
-      attendanceStatus: "COMPLETED",
       startTime: { $gte: startOfDay, $lte: endOfDay },
     }).sort({ startTime: 1 });
 
@@ -95,49 +82,35 @@ exports.getTodayReport = async (req, res) => {
       startTime: { $gte: startOfDay, $lte: endOfDay },
     });
 
-    // Aggregate across all completed sessions
-    let totalActive = 0;
-    let totalIdle = 0;
-    let totalWaiting = 0;
-    let totalBreak = 0;
-    let totalDuration = 0;
-
-    sessions.forEach((s) => {
-      totalActive += s.activeTime || 0;
-      totalIdle += s.idleTime || 0;
-      totalWaiting += s.waitingTime || 0;
-      totalBreak += s.breakTime || 0;
-      totalDuration += s.totalDuration || 0;
-    });
-
-    // Derive earliest start and latest end across all sessions today
-    const sessionStart = sessions.length > 0 ? sessions[0].startTime : null;
-    const sessionEnd =
-      sessions.length > 0 ? sessions[sessions.length - 1].endTime : null;
+    // Use DailyActivity if it exists, else aggregate from sessions
+    const totalActive = daily?.totalActiveTime || 0;
+    const totalIdle = daily?.totalIdleTime || 0;
+    const totalWaiting = daily?.totalWaitingTime || 0;
+    const totalBreak = daily?.totalBreakTime || 0;
+    const totalDuration = daily?.totalDuration || 0;
 
     const focusScore = deriveFocusScore(totalActive, totalDuration);
-    const productivityScore = deriveProductivityScore(
-      totalActive,
-      totalWaiting,
-      totalDuration
-    );
+    const productivityScore = deriveProductivityScore(totalActive, totalWaiting, totalDuration);
     const burnoutRisk = deriveBurnoutRisk(totalActive, totalBreak);
-    const attendanceStatus = deriveAttendanceResult(totalActive);
+
+    // Attendance comes from DailyActivity — NOT from session-level calculation
+    const attendanceStatus = daily?.attendanceResult || "ABSENT";
 
     return res.status(200).json({
       success: true,
       empId,
       fullName: user.fullName,
       department: user.department,
-      date: new Date().toISOString().slice(0, 10),
-      sessionStart,
-      sessionEnd,
+      date: today,
+      sessionStart: sessions.length > 0 ? sessions[0].startTime : null,
+      sessionEnd: sessions.length > 0 ? sessions[sessions.length - 1].endTime : null,
       sessionCount: sessions.length,
       hasLiveSession: !!liveSession,
       liveSessionId: liveSession?._id || null,
 
       // Raw time values (seconds)
       totalLoggedTime: totalDuration,
+      platformTime: daily?.totalPlatformTime || 0,
       activeTime: totalActive,
       idleTime: totalIdle,
       waitingTime: totalWaiting,
@@ -152,6 +125,15 @@ exports.getTodayReport = async (req, res) => {
       productivityScore,
       burnoutRisk,
       attendanceStatus,
+
+      // Liveness compliance (from DailyActivity)
+      livenessSlots: daily?.livenessSlots || [],
+      totalLivenessPassed: daily?.totalLivenessPassed || 0,
+      complianceScore: daily?.complianceScore || 0,
+
+      // Thresholds for progress calculation
+      presentThreshold: parseInt(process.env.PRESENT_ACTIVE_SECONDS || "360", 10),
+      partialThreshold: parseInt(process.env.PARTIAL_ACTIVE_SECONDS || "180", 10),
 
       // Full sessions list for drilling down
       sessions,
@@ -190,14 +172,15 @@ exports.getAttendanceSummary = async (req, res) => {
     const since = new Date();
     since.setMonth(since.getMonth() - months);
     since.setHours(0, 0, 0, 0);
+    const sinceDate = since.toISOString().slice(0, 10);
 
-    const sessions = await Session.find({
+    // Get DailyActivity records for the date range
+    const dailyRecords = await DailyActivity.find({
       empId,
-      attendanceStatus: "COMPLETED",
-      startTime: { $gte: since },
-    }).sort({ startTime: -1 }); // newest first
+      date: { $gte: sinceDate },
+    }).sort({ date: -1 });
 
-    if (sessions.length === 0) {
+    if (dailyRecords.length === 0) {
       return res.status(200).json({
         success: true,
         empId,
@@ -219,31 +202,7 @@ exports.getAttendanceSummary = async (req, res) => {
       });
     }
 
-    // ── Group sessions by calendar day ─────────────────────────────────────
-    const dayMap = {}; // key: "YYYY-MM-DD"
-
-    sessions.forEach((s) => {
-      const dayKey = new Date(s.startTime).toISOString().slice(0, 10);
-      if (!dayMap[dayKey]) {
-        dayMap[dayKey] = {
-          date: dayKey,
-          sessions: [],
-          totalActive: 0,
-          totalIdle: 0,
-          totalWaiting: 0,
-          totalBreak: 0,
-          totalDuration: 0,
-        };
-      }
-      dayMap[dayKey].sessions.push(s);
-      dayMap[dayKey].totalActive += s.activeTime || 0;
-      dayMap[dayKey].totalIdle += s.idleTime || 0;
-      dayMap[dayKey].totalWaiting += s.waitingTime || 0;
-      dayMap[dayKey].totalBreak += s.breakTime || 0;
-      dayMap[dayKey].totalDuration += s.totalDuration || 0;
-    });
-
-    // ── Per-day attendance result ───────────────────────────────────────────
+    // ── Aggregate from DailyActivity records ─────────────────────────────
     let presentDays = 0;
     let partialDays = 0;
     let absentDays = 0;
@@ -253,41 +212,49 @@ exports.getAttendanceSummary = async (req, res) => {
     let totalBreak = 0;
     let totalDuration = 0;
 
-    const dailyResults = Object.values(dayMap).map((day) => {
-      const result = deriveAttendanceResult(day.totalActive);
+    const dailyBreakdown = dailyRecords.map((day) => {
+      const result = day.attendanceResult;
       if (result === "PRESENT") presentDays++;
       else if (result === "PARTIAL") partialDays++;
       else absentDays++;
 
-      totalActive += day.totalActive;
-      totalIdle += day.totalIdle;
-      totalWaiting += day.totalWaiting;
-      totalBreak += day.totalBreak;
+      totalActive += day.totalActiveTime;
+      totalIdle += day.totalIdleTime;
+      totalWaiting += day.totalWaitingTime;
+      totalBreak += day.totalBreakTime;
       totalDuration += day.totalDuration;
 
       return {
         date: day.date,
         result,
-        totalActive: day.totalActive,
-        totalIdle: day.totalIdle,
-        totalWaiting: day.totalWaiting,
-        totalBreak: day.totalBreak,
+        totalActive: day.totalActiveTime,
+        totalIdle: day.totalIdleTime,
+        totalWaiting: day.totalWaitingTime,
+        totalBreak: day.totalBreakTime,
         totalDuration: day.totalDuration,
-        sessionCount: day.sessions.length,
-        focusScore: deriveFocusScore(day.totalActive, day.totalDuration),
+        sessionCount: day.sessionCount,
+        focusScore: day.averageFocusScore,
+        complianceScore: day.complianceScore,
+        totalLivenessPassed: day.totalLivenessPassed,
       };
     });
 
-    const totalDays = Object.keys(dayMap).length;
-    // Attendance % = (present + 0.5 * partial) / totalDays * 100
+    const totalDays = dailyRecords.length;
     const attendancePercent =
       totalDays > 0
         ? Math.round(((presentDays + partialDays * 0.5) / totalDays) * 100)
         : 0;
 
-    // ── Build the "recent sessions" list the UI expects ─────────────────────
-    // Map Session model field names → what WorkReport.jsx reads
-    const recentSessions = sessions.slice(0, 20).map((s) => ({
+    // ── Build recent sessions list ───────────────────────────────────────
+    const recentSessionIds = dailyRecords.slice(0, 5).flatMap((d) => d.sessions);
+    const recentSessions = await Session.find({
+      _id: { $in: recentSessionIds },
+    })
+      .sort({ startTime: -1 })
+      .limit(20)
+      .select("startTime endTime totalDuration activeTime idleTime waitingTime breakTime focusMode workStatus attendanceStatus");
+
+    const mappedSessions = recentSessions.map((s) => ({
       _id: s._id,
       sessionStart: s.startTime,
       sessionEnd: s.endTime,
@@ -296,9 +263,8 @@ exports.getAttendanceSummary = async (req, res) => {
       waitingSeconds: s.waitingTime || 0,
       breakSeconds: s.breakTime || 0,
       workStatus: s.workStatus,
-      attendanceResult: s.attendanceResult,
       focusMode: s.focusMode,
-      outcomeNote: null, // reserved for future notes feature
+      outcomeNote: null,
     }));
 
     return res.status(200).json({
@@ -318,8 +284,8 @@ exports.getAttendanceSummary = async (req, res) => {
         totalBreak,
         totalDuration,
       },
-      dailyBreakdown: dailyResults,
-      sessions: recentSessions,
+      dailyBreakdown,
+      sessions: mappedSessions,
     });
   } catch (err) {
     console.error("getAttendanceSummary error:", err);
@@ -359,7 +325,7 @@ exports.getSessionHistory = async (req, res) => {
       .skip(skip)
       .limit(limit)
       .select(
-        "startTime endTime totalDuration activeTime idleTime waitingTime breakTime focusMode workStatus attendanceResult attendanceStatus"
+        "startTime endTime totalDuration activeTime idleTime waitingTime breakTime focusMode workStatus attendanceStatus"
       );
 
     return res.status(200).json({
