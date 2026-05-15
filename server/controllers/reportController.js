@@ -6,6 +6,13 @@ const User = require("../models/User");
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+const getLocalDateString = (d = new Date()) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 /**
  * Compute burnout risk based on active/break ratio.
  *   HIGH    : < 10 % break out of active+break
@@ -28,21 +35,21 @@ const deriveBurnoutRisk = (activeSeconds, breakSeconds) => {
  *                 "Productivity", "System", "Other"
  */
 const CATEGORY_WEIGHTS = {
-  "Deep Work":    1.0,  // IDEs, DBs, Design, Docs
-  "Terminal":     0.9,  // CLI — strongly correlated with dev work
+  "Deep Work": 1.0,  // IDEs, DBs, Design, Docs
+  "Terminal": 0.9,  // CLI — strongly correlated with dev work
   "Productivity": 0.8,  // Note-taking, task managers
-  "Comms":        0.5,  // Slack, Email — necessary but shallow
-  "Meeting":      0.5,  // Zoom, Teams — necessary but passive
-  "Browser":      0.3,  // Generic browsing (refined by server pattern-match)
-  "Browsing":     0.3,
+  "Comms": 0.5,  // Slack, Email — necessary but shallow
+  "Meeting": 0.5,  // Zoom, Teams — necessary but passive
+  "Browser": 0.3,  // Generic browsing (refined by server pattern-match)
+  "Browsing": 0.3,
   "Deep Work (Browser)": 1.0, // GitHub, localhost, docs
-  "System":       0.05, // File Explorer, Calculator etc. — nearly noise
-  "Other":        0.15, // Unknown but not confirmed distraction
-  "Unknown":      0.15,
-  "Social":       0.0,  // Confirmed distraction
-  "Media":        0.0,  // Streaming, music etc.
-  "Entertainment":0.0,
-  "Disabled":     0.0,
+  "System": 0.05, // File Explorer, Calculator etc. — nearly noise
+  "Other": 0.15, // Unknown but not confirmed distraction
+  "Unknown": 0.15,
+  "Social": 0.0,  // Confirmed distraction
+  "Media": 0.0,  // Streaming, music etc.
+  "Entertainment": 0.0,
+  "Disabled": 0.0,
 };
 
 /**
@@ -51,57 +58,57 @@ const CATEGORY_WEIGHTS = {
  */
 const APP_CATEGORY_MAP = {
   // Workguard itself
-  "antigravity.exe":      "Deep Work",
-  "electron.exe":         "Deep Work",
+  "antigravity.exe": "Deep Work",
+  "electron.exe": "Deep Work",
   // Code Editors
-  "code.exe":             "Deep Work",
-  "cursor.exe":           "Deep Work",
-  "pycharm64.exe":        "Deep Work",
-  "idea64.exe":           "Deep Work",
-  "webstorm64.exe":       "Deep Work",
-  "sublime_text.exe":     "Deep Work",
-  "notepad++.exe":        "Deep Work",
-  "vim.exe":              "Deep Work",
-  "nvim.exe":             "Deep Work",
+  "code.exe": "Deep Work",
+  "cursor.exe": "Deep Work",
+  "pycharm64.exe": "Deep Work",
+  "idea64.exe": "Deep Work",
+  "webstorm64.exe": "Deep Work",
+  "sublime_text.exe": "Deep Work",
+  "notepad++.exe": "Deep Work",
+  "vim.exe": "Deep Work",
+  "nvim.exe": "Deep Work",
   // Database Tools
-  "mongodbcompass.exe":   "Deep Work",
-  "dbeaver.exe":          "Deep Work",
-  "datagrip64.exe":       "Deep Work",
-  "tableplus.exe":        "Deep Work",
-  "ssms.exe":             "Deep Work",
-  "azuredatastudio.exe":  "Deep Work",
+  "mongodbcompass.exe": "Deep Work",
+  "dbeaver.exe": "Deep Work",
+  "datagrip64.exe": "Deep Work",
+  "tableplus.exe": "Deep Work",
+  "ssms.exe": "Deep Work",
+  "azuredatastudio.exe": "Deep Work",
   // API & Dev Tools
-  "postman.exe":          "Deep Work",
-  "insomnia.exe":         "Deep Work",
-  "githubdesktop.exe":    "Deep Work",
-  "gitkraken.exe":        "Deep Work",
-  "sourcetree.exe":       "Deep Work",
-  "docker.exe":           "Deep Work",
+  "postman.exe": "Deep Work",
+  "insomnia.exe": "Deep Work",
+  "githubdesktop.exe": "Deep Work",
+  "gitkraken.exe": "Deep Work",
+  "sourcetree.exe": "Deep Work",
+  "docker.exe": "Deep Work",
   // Terminals
-  "cmd.exe":              "Terminal",
-  "powershell.exe":       "Terminal",
-  "pwsh.exe":             "Terminal",
-  "windowsterminal.exe":  "Terminal",
-  "wt.exe":               "Terminal",
+  "cmd.exe": "Terminal",
+  "powershell.exe": "Terminal",
+  "pwsh.exe": "Terminal",
+  "windowsterminal.exe": "Terminal",
+  "wt.exe": "Terminal",
   // Design
-  "figma.exe":            "Deep Work",
-  "xd.exe":               "Deep Work",
-  "photoshop.exe":        "Deep Work",
+  "figma.exe": "Deep Work",
+  "xd.exe": "Deep Work",
+  "photoshop.exe": "Deep Work",
   // Office
-  "winword.exe":          "Deep Work",
-  "excel.exe":            "Deep Work",
-  "powerpnt.exe":         "Deep Work",
+  "winword.exe": "Deep Work",
+  "excel.exe": "Deep Work",
+  "powerpnt.exe": "Deep Work",
   // Communication
-  "slack.exe":            "Comms",
-  "teams.exe":            "Meeting",
-  "zoom.exe":             "Meeting",
-  "outlook.exe":          "Comms",
+  "slack.exe": "Comms",
+  "teams.exe": "Meeting",
+  "zoom.exe": "Meeting",
+  "outlook.exe": "Comms",
   // Browsers
-  "chrome.exe":           "Browser",
-  "msedge.exe":           "Browser",
-  "firefox.exe":          "Browser",
+  "chrome.exe": "Browser",
+  "msedge.exe": "Browser",
+  "firefox.exe": "Browser",
   // System noise
-  "explorer.exe":         "System",
+  "explorer.exe": "System",
 };
 
 /**
@@ -190,8 +197,8 @@ exports.getTodayReport = async (req, res) => {
     }
     const empId = user.empId;
 
-    // Today's date window
-    const today = new Date().toISOString().slice(0, 10);
+    // Today's date window in local time
+    const today = getLocalDateString();
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date();
@@ -220,18 +227,49 @@ exports.getTodayReport = async (req, res) => {
     const totalBreak = daily?.totalBreakTime || 0;
     const totalDuration = daily?.totalDuration || 0;
 
-    const focusScore = deriveFocusScore(totalActive, totalDuration);
+    // The user requested that the "Focus Score" only penalizes for Idle time, 
+    // so we exclude Break and Waiting time from the denominator.
+    const effectiveTotalTime = totalActive + totalIdle;
+    const focusScore = deriveFocusScore(totalActive, effectiveTotalTime);
     const burnoutRisk = deriveBurnoutRisk(totalActive, totalBreak);
 
     // Attendance comes from DailyActivity — NOT from session-level calculation
     const attendanceStatus = daily?.attendanceResult || "ABSENT";
 
     // Enrich sessions with their specific Productivity Intensity Index
+    let totalProductivityScore = 0;
+    let totalProductivityWeight = 0;
+    const aggregatedAppUsage = {};
+
     const enrichedSessions = sessions.map(s => {
       const obj = s.toObject();
       obj.productivityIndex = deriveIntensityIndex(s);
+
+      if (s.activeTime > 0) {
+        totalProductivityScore += obj.productivityIndex * s.activeTime;
+        totalProductivityWeight += s.activeTime;
+      }
+
+      // Aggregate app usage
+      if (s.appUsageTimeline && s.appUsageTimeline.length > 0) {
+        s.appUsageTimeline.forEach(app => {
+          const name = app.app || "Unknown";
+          if (!aggregatedAppUsage[name]) aggregatedAppUsage[name] = 0;
+          aggregatedAppUsage[name] += app.duration || 0;
+        });
+      }
+
       return obj;
     });
+
+    const productivityScore = totalProductivityWeight > 0 
+      ? Math.round(totalProductivityScore / totalProductivityWeight) 
+      : 0;
+
+    // Convert aggregatedAppUsage to an array and sort by duration descending
+    const appUsageSummary = Object.entries(aggregatedAppUsage)
+      .map(([app, duration]) => ({ app, duration }))
+      .sort((a, b) => b.duration - a.duration);
 
     return res.status(200).json({
       success: true,
@@ -268,9 +306,9 @@ exports.getTodayReport = async (req, res) => {
       complianceScore: daily?.complianceScore || 0,
 
       // Wellness metrics (from DailyActivity — accumulated via wellness-sync pings)
-      averageStrainScore:  daily?.averageStrainScore  || 0,
-      totalDistractions:   daily?.totalDistractions   || 0,
-      flowDurationMins:    daily?.flowDurationMins     || 0,
+      averageStrainScore: daily?.averageStrainScore || 0,
+      totalDistractions: daily?.totalDistractions || 0,
+      flowDurationMins: daily?.flowDurationMins || 0,
 
       // Thresholds for progress calculation
       presentThreshold: parseInt(process.env.PRESENT_ACTIVE_SECONDS || "3600", 10),
@@ -278,6 +316,10 @@ exports.getTodayReport = async (req, res) => {
 
       // Full sessions list for drilling down (enriched with productivity index)
       sessions: enrichedSessions,
+
+      // Aggregated metrics for the UI
+      productivityScore,
+      appUsageSummary,
     });
   } catch (err) {
     console.error("getTodayReport error:", err);
@@ -314,7 +356,7 @@ exports.getAttendanceSummary = async (req, res) => {
     const since = new Date();
     since.setMonth(since.getMonth() - months);
     since.setHours(0, 0, 0, 0);
-    const sinceDate = since.toISOString().slice(0, 10);
+    const sinceDate = getLocalDateString(since);
 
     // Get DailyActivity records for the date range
     const dailyRecords = await DailyActivity.find({

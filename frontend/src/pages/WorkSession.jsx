@@ -349,7 +349,7 @@ useEffect(() => {
             />
 
             <div className="ws-info">
-              ⏱ Idle threshold: <b>{focusMode ? "30 min" : "10 min"}</b>
+              ⏱ Idle threshold: <b>{focusMode ? "5 min" : "2 min"}</b>
             </div>
           </div>
 
@@ -396,33 +396,35 @@ useEffect(() => {
             </div>
           </div>
 
-          <div className="ws-card smile-card-enhanced">
+          <div className="ws-card">
 
             <div className="ws-card-head">
-              <span className="icon yellow" style={{ background: "#fef9c3" }}>😊</span>
+              <span className="icon" style={{ background: "#fef9c3" }}>😊</span>
               <div>
                 <h3>Smile Break</h3>
                 <p>A light moment to refresh your focus</p>
               </div>
             </div>
 
-            <div style={{ textAlign: "center", marginTop: "10px" }}>
-              <div
-                className={`smile-icon-enhanced ${pulseSmile ? "pulse" : ""}`}
-                onClick={generateJoke}
-                style={{ marginBottom: "10px" }}
-              >
-                😊
+            <button 
+              className="btn ghost" 
+              style={{ width: "100%", padding: "14px", borderRadius: "16px", marginBottom: "16px" }}
+              onClick={generateJoke}
+            >
+              Get a Joke
+            </button>
+
+            {showJoke ? (
+              <div className="ws-info" style={{ background: "#fef9c3", color: "#854d0e", animation: "fadeInSmooth 0.4s ease" }}>
+                {currentJoke}
               </div>
-            </div>
+            ) : (
+              <div className="ws-info">
+                🌱 Mental breaks improve focus
+              </div>
+            )}
 
-  {showJoke && (
-    <div className="joke-box-enhanced">
-      {currentJoke}
-    </div>
-  )}
-
-</div>
+          </div>
         </div>
 
         {/* Stats */}

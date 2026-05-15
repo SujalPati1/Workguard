@@ -108,8 +108,8 @@ const recalcAttendance = (daily) => {
 
   const platformTime = daily.totalPlatformTime;
 
-  // PRESENT: sufficient platform time + all 3 liveness checks passed
-  if (platformTime >= PRESENT_PLATFORM_SECONDS && passed >= TOTAL_LIVENESS_REQUIRED) {
+  // PRESENT: >= 80% platform time + at least 2 liveness checks passed
+  if (platformTime >= (0.8 * PRESENT_PLATFORM_SECONDS) && passed >= 2) {
     daily.attendanceResult = "PRESENT";
   // PARTIAL: sufficient platform time + at least 1 liveness passed
   } else if (platformTime >= PARTIAL_PLATFORM_SECONDS && passed >= 1) {
@@ -303,11 +303,14 @@ exports.syncSessionTotals = async (req, res) => {
       daily.sessionCount = daily.sessions.length;
     }
 
-    if (daily.totalDuration > 0) {
+    const effectiveTotalTime = daily.totalActiveTime + daily.totalIdleTime;
+    if (effectiveTotalTime > 0) {
       daily.averageFocusScore = Math.min(
         100,
-        Math.round((daily.totalActiveTime / daily.totalDuration) * 100)
+        Math.round((daily.totalActiveTime / effectiveTotalTime) * 100)
       );
+    } else {
+      daily.averageFocusScore = 0;
     }
 
     daily.lastActivity = new Date();
