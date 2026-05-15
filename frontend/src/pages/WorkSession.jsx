@@ -25,7 +25,7 @@ const WorkSession = () => {
     setWorkStatus: setWorkStatusCtx, lastActivityRef,
     livenessModalOpen, livenessChecksDone, livenessSlots,
     startEngineForSession, triggerLivenessModal,
-    stopWorkSession,
+    stopWorkSession, logStateTransition
   } = useSession();
   const navigate = useNavigate();
 
@@ -94,9 +94,9 @@ useEffect(() => {
 
     try {
       const res = await startSessionApi({
-        empId: employee.empId,
         focusMode,
         workStatus,
+        // empId is resolved server-side from the JWT token
       });
 
       if (res?.session?._id) {
@@ -136,9 +136,8 @@ useEffect(() => {
     if (!employee?.empId) return;
 
     try {
-      const res = await resumeSessionApi({
-        empId: employee.empId,
-      });
+      const res = await resumeSessionApi({});
+        // empId resolved server-side from JWT
 
       if (res?.session?._id) {
         const s = res.session;
@@ -176,7 +175,7 @@ useEffect(() => {
 
     const restoreSession = async () => {
       try {
-        const res = await resumeSessionApi({ empId: employee.empId });
+        const res = await resumeSessionApi({}); // empId resolved server-side from JWT
         if (res?.session?._id) {
           const s = res.session;
           updateWorkSession({
@@ -342,7 +341,11 @@ useEffect(() => {
 
             <ToggleSwitch
               isOn={focusMode}
-              onToggle={() => updateWorkSession({ focusMode: !focusMode })}
+              onToggle={() => {
+                const newMode = !focusMode;
+                updateWorkSession({ focusMode: newMode });
+                logStateTransition(newMode ? 'FOCUS_MODE_ON' : 'FOCUS_MODE_OFF');
+              }}
             />
 
             <div className="ws-info">
@@ -370,7 +373,17 @@ useEffect(() => {
       className={`ws-status-pill ${
         workStatus === item.value ? "active" : ""
       }`}
-      onClick={() => setWorkStatusCtx(item.value)}
+      onClick={() => {
+        if (workStatus !== item.value) {
+          if (workStatus === "BREAK") logStateTransition("BREAK_END");
+          if (workStatus === "WAITING") logStateTransition("WAITING_END");
+          
+          setWorkStatusCtx(item.value);
+          
+          if (item.value === "BREAK") logStateTransition("BREAK_START");
+          if (item.value === "WAITING") logStateTransition("WAITING_START");
+        }
+      }}
     >
       <span>{item.icon}</span>
       <b>{item.label}</b>

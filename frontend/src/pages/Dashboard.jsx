@@ -32,7 +32,7 @@ const Dashboard = () => {
     try {
       setLoading(true);
       setError("");
-      const data = await getTodayReportApi(employee.empId);
+      const data = await getTodayReportApi();
       setReport(data && typeof data === "object" ? data : {});
     } catch (err) {
       setError(
@@ -51,15 +51,18 @@ const Dashboard = () => {
 
   const attendanceStatus = report?.attendanceStatus ?? "Absent";
   const focusScore = Number(report?.focusScore ?? 0);
-  // API returns totalLoggedTime (seconds); totalDuration does not exist in this response.
-  const totalWorkTime = Number(report?.totalLoggedTime ?? 0);
 
-  // Build a simple activity timeline from today's sessions array (checkpoints are stored per session)
+  // totalLoggedTime is the entire day's login/platform time, totalWorkedTime is actual productivity (active)
+  const totalLoggedTime = Number(report?.platformTime ?? 0);
+  const totalWorkedTime = Number(report?.activeTime ?? 0);
+  // console.log(report)
+
+  // Build the Productivity Intensity timeline from today's sessions
   const activityTimeline = useMemo(() => {
     const sessions = Array.isArray(report?.sessions) ? report.sessions : [];
     return sessions.map((s, i) => ({
       time: s.startTime ? new Date(s.startTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : `S${i + 1}`,
-      activity: s.totalDuration > 0 ? Math.round(((s.activeTime || 0) / s.totalDuration) * 100) : 0,
+      productivity: s.productivityIndex ?? 0,
     }));
   }, [report]);
 
@@ -86,17 +89,17 @@ const Dashboard = () => {
 
     if (activityTimeline.length > 0) {
       const lowest = activityTimeline.reduce((min, p) =>
-        Number(p.activity) < Number(min.activity) ? p : min
+        Number(p.productivity) < Number(min.productivity) ? p : min
       );
-      if (lowest?.time) {
+      if (lowest?.time && lowest.productivity < 40) {
         list.push(
-          `Activity dipped around ${lowest.time}. That may be a natural reset window.`
+          `Productivity intensity dipped around ${lowest.time}. High-focus intervals may help.`
         );
       }
     }
 
     if (!list.length) {
-      list.push("Balanced productivity rhythm observed today.");
+      list.push("Consistent work intensity observed throughout your sessions.");
     }
 
     return list;
@@ -142,74 +145,74 @@ const Dashboard = () => {
         <div style={{ textAlign: "right" }}>
           <p style={{ fontSize: 12, color: "#94a3b8", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Daily Progress</p>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-             <span style={{ fontSize: 18, fontWeight: 800, color: "#0f172a" }}>
-               {Math.min(100, Math.round(((report?.activeTime || 0) / (report?.presentThreshold || 360)) * 100))}%
-             </span>
-             <div style={{ width: 120, height: 8, background: "#f1f5f9", borderRadius: 4, overflow: "hidden" }}>
-                <div style={{ 
-                  width: `${Math.min(100, ((report?.activeTime || 0) / (report?.presentThreshold || 360)) * 100)}%`, 
-                  height: "100%", 
-                  background: "linear-gradient(90deg, #3b82f6, #2dd4bf)",
-                  borderRadius: 4,
-                  transition: "width 0.5s ease-out"
-                }} />
-             </div>
+            <span style={{ fontSize: 18, fontWeight: 800, color: "#0f172a" }}>
+              {Math.min(100, Math.round(((report?.activeTime || 0) / (report?.presentThreshold || 360)) * 100))}%
+            </span>
+            <div style={{ width: 120, height: 8, background: "#f1f5f9", borderRadius: 4, overflow: "hidden" }}>
+              <div style={{
+                width: `${Math.min(100, ((report?.activeTime || 0) / (report?.presentThreshold || 360)) * 100)}%`,
+                height: "100%",
+                background: "linear-gradient(90deg, #3b82f6, #2dd4bf)",
+                borderRadius: 4,
+                transition: "width 0.5s ease-out"
+              }} />
+            </div>
           </div>
         </div>
       </div>
 
       {/* Main Progress Hero */}
-      <div className="wg-card" style={{ 
-        padding: "30px", 
-        marginBottom: 30, 
+      <div className="wg-card" style={{
+        padding: "30px",
+        marginBottom: 30,
         background: "linear-gradient(135deg, #1e293b, #0f172a)",
         color: "white",
         position: "relative",
         overflow: "hidden"
       }}>
         <div style={{ position: "relative", zIndex: 1 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                 <h3 style={{ margin: 0, color: "#94a3b8", fontSize: 14, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em" }}>Daily Presence Goal</h3>
-                 <span style={{ 
-                   padding: "4px 12px", 
-                   background: (report?.platformTime || 0) >= (report?.presentThreshold || 360) ? "#059669" : "#334155", 
-                   borderRadius: 20, 
-                   fontSize: 12, 
-                   fontWeight: 700 
-                 }}>
-                   {(report?.platformTime || 0) >= (report?.presentThreshold || 360) ? "GOAL REACHED" : "IN PROGRESS"}
-                 </span>
-              </div>
-    
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 10 }}>
-                <h2 style={{ fontSize: 48, fontWeight: 800, margin: 0 }}>
-                  {Math.min(100, Math.round(((report?.platformTime || 0) / (report?.presentThreshold || 360)) * 100))}%
-                </h2>
-                <span style={{ color: "#94a3b8", fontSize: 16 }}>attendance completed</span>
-              </div>
-    
-              <div style={{ width: "100%", height: 14, background: "rgba(255,255,255,0.1)", borderRadius: 7, marginBottom: 15, overflow: "hidden" }}>
-                <div style={{ 
-                  width: `${Math.min(100, ((report?.platformTime || 0) / (report?.presentThreshold || 360)) * 100)}%`, 
-                  height: "100%", 
-                  background: "linear-gradient(90deg, #60a5fa, #34d399)",
-                  borderRadius: 7,
-                  transition: "width 1s cubic-bezier(0.34, 1.56, 0.64, 1)",
-                  boxShadow: "0 0 20px rgba(96, 165, 250, 0.5)"
-                }} />
-              </div>
-    
-              <p style={{ margin: 0, color: "#94a3b8", fontSize: 14 }}>
-                { (report?.platformTime || 0) < (report?.presentThreshold || 360) 
-                  ? `You need ${Math.ceil(((report?.presentThreshold || 360) - (report?.platformTime || 0)) / 60)} more minutes of online presence to reach today's target.`
-                  : "Excellent! You have fulfilled your online presence requirement for today."
-                }
-              </p>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <h3 style={{ margin: 0, color: "#94a3b8", fontSize: 14, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em" }}>Daily Presence Goal</h3>
+            <span style={{
+              padding: "4px 12px",
+              background: (report?.platformTime || 0) >= (report?.presentThreshold || 360) ? "#059669" : "#334155",
+              borderRadius: 20,
+              fontSize: 12,
+              fontWeight: 700
+            }}>
+              {(report?.platformTime || 0) >= (report?.presentThreshold || 360) ? "GOAL REACHED" : "IN PROGRESS"}
+            </span>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 10 }}>
+            <h2 style={{ fontSize: 48, fontWeight: 800, margin: 0 }}>
+              {Math.min(100, Math.round(((report?.platformTime || 0) / (report?.presentThreshold || 360)) * 100))}%
+            </h2>
+            <span style={{ color: "#94a3b8", fontSize: 16 }}>attendance completed</span>
+          </div>
+
+          <div style={{ width: "100%", height: 14, background: "rgba(255,255,255,0.1)", borderRadius: 7, marginBottom: 15, overflow: "hidden" }}>
+            <div style={{
+              width: `${Math.min(100, ((report?.platformTime || 0) / (report?.presentThreshold || 360)) * 100)}%`,
+              height: "100%",
+              background: "linear-gradient(90deg, #60a5fa, #34d399)",
+              borderRadius: 7,
+              transition: "width 1s cubic-bezier(0.34, 1.56, 0.64, 1)",
+              boxShadow: "0 0 20px rgba(96, 165, 250, 0.5)"
+            }} />
+          </div>
+
+          <p style={{ margin: 0, color: "#94a3b8", fontSize: 14 }}>
+            {(report?.platformTime || 0) < (report?.presentThreshold || 360)
+              ? `You need ${Math.ceil(((report?.presentThreshold || 360) - (report?.platformTime || 0)) / 60)} more minutes of online presence to reach today's target.`
+              : "Excellent! You have fulfilled your online presence requirement for today."
+            }
+          </p>
         </div>
 
         {/* Decorative Background Elements */}
-        <div style={{ 
-          position: "absolute", top: -50, right: -50, width: 200, height: 200, 
+        <div style={{
+          position: "absolute", top: -50, right: -50, width: 200, height: 200,
           background: "radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%)",
           borderRadius: "50%"
         }} />
@@ -239,7 +242,7 @@ const Dashboard = () => {
           }
           title="Work Session"
           value={attendanceStatus}
-          sub={`Worked ${formatHMS(totalWorkTime)}`}
+          sub={`Worked ${formatHMS(totalWorkedTime)}`}
         />
 
         <StatCard
@@ -291,35 +294,40 @@ const Dashboard = () => {
               <Clock size={20} color="cyan" />
             </div>
           }
-          title="Total Work Time"
-          value={formatHMS(totalWorkTime)}
-          sub="Today's accumulated time"
+          title="Total Worked Time"
+          value={formatHMS(totalLoggedTime)}
+          sub="Today's total accumulated login time"
         />
       </div>
 
-      {/* Timeline */}
+      {/* Productivity Timeline */}
       <div className="wg-card" style={{ padding: 25, marginBottom: 30 }}>
-        <h3 style={{ marginBottom: 20 }}>Work Activity Timeline</h3>
+        <h3 style={{ marginBottom: 20 }}>Work Productivity Intensity</h3>
 
         {activityTimeline.length > 0 ? (
           <ResponsiveContainer width="100%" height={260}>
             <LineChart data={activityTimeline}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="time" />
-              <YAxis domain={[0, 100]} />
-              <Tooltip />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#94a3b8" }} />
+              <YAxis domain={[0, 100]} axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#94a3b8" }} />
+              <Tooltip 
+                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
+                itemStyle={{ fontWeight: 700, color: '#3b82f6' }}
+              />
               <Line
                 type="monotone"
-                dataKey="activity"
+                dataKey="productivity"
+                name="Productivity Index"
                 stroke="#3b82f6"
-                strokeWidth={3}
-                dot={{ r: 5 }}
+                strokeWidth={4}
+                dot={{ r: 6, fill: "#3b82f6", strokeWidth: 2, stroke: "#fff" }}
+                activeDot={{ r: 8, fill: "#2dd4bf", strokeWidth: 0 }}
               />
             </LineChart>
           </ResponsiveContainer>
         ) : (
-          <div style={{ textAlign: "center", color: "#9ca3af" }}>
-            No activity data available
+          <div style={{ textAlign: "center", color: "#9ca3af", padding: "40px 0" }}>
+            No productivity data available yet
           </div>
         )}
       </div>

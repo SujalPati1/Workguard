@@ -9,37 +9,37 @@ const BASE = "/report"; // apiClient baseURL is http://localhost:5000/api
 
 /**
  * Get today's aggregated work report for the logged-in employee.
- * @param {string} empId
+ * No empId needed — backend identifies the user from the JWT token.
  * @returns {Promise<Object>}
  */
-export const getTodayReportApi = async (empId) => {
-  const response = await apiClient.get(`${BASE}/today/${empId}`);
+export const getTodayReportApi = async () => {
+  const response = await apiClient.get(`${BASE}/today`);
   return response.data;
 };
 
 /**
  * Get attendance summary for the last N months.
- * @param {string} empId
+ * No empId needed — backend identifies the user from the JWT token.
  * @param {number} months  - default 3
  * @returns {Promise<Object>}
  */
-export const getAttendanceSummaryApi = async (empId, months = 3) => {
+export const getAttendanceSummaryApi = async (months = 3) => {
   const response = await apiClient.get(
-    `${BASE}/summary/${empId}?months=${months}`
+    `${BASE}/summary?months=${months}`
   );
   return response.data;
 };
 
 /**
  * Get paginated session history.
- * @param {string} empId
+ * No empId needed — backend identifies the user from the JWT token.
  * @param {number} page
  * @param {number} limit
  * @returns {Promise<Object>}
  */
-export const getSessionHistoryApi = async (empId, page = 1, limit = 10) => {
+export const getSessionHistoryApi = async (page = 1, limit = 10) => {
   const response = await apiClient.get(
-    `${BASE}/history/${empId}?page=${page}&limit=${limit}`
+    `${BASE}/history?page=${page}&limit=${limit}`
   );
   return response.data;
 };

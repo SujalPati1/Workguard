@@ -42,7 +42,7 @@ const request = async (url, options = {}) => {
 export const startSessionApi = (payload) =>
   request(`${BASE}/start`, {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payload), // payload: { focusMode, workStatus } — no empId needed
   });
 
 export const checkpointApi = (payload) =>
@@ -63,8 +63,8 @@ export const stopSessionApi = (payload) =>
     body: JSON.stringify(payload),
   });
 
-export const getTodayReportApi = (empId) =>
-  request(`${BASE}/report/today/${empId}`);
+export const getTodayReportApi = () =>
+  request(`${BASE}/report/today`);
 
 export const getSessionApi = (sessionId) =>
   request(`${BASE}/${sessionId}`);

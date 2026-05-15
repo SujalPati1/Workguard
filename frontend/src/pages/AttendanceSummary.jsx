@@ -21,7 +21,7 @@ const AttendanceSummary = () => {
       try {
         setLoading(true);
         // Use the correct report API (returns totalDuration, activeTime etc.)
-        const res = await getTodayReportApi(employee.empId);
+        const res = await getTodayReportApi();
         setData(res);
         setError(null);
       } catch (err) {
@@ -187,24 +187,38 @@ const AttendanceSummary = () => {
           {/* Burnout & Risk */}
           <div className="wg-card" style={{ padding: 24, marginTop: 24, marginBottom: 40 }}>
             <h3 className="card-heading" style={{ margin: 0, fontWeight: 700, fontSize: 16, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Wellness Snapshot</h3>
-            <p className="burnout-info" style={{ marginTop: 16, fontSize: 15, fontWeight: 500, color: '#475569' }}>
-              Burnout Risk:{" "}
-              <span
-                className="risk-value"
-                style={{
-                  color:
-                    data.burnoutRisk === "HIGH"
-                      ? "#dc2626"
-                      : data.burnoutRisk === "MEDIUM"
-                      ? "#ca8a04"
-                      : "#16a34a",
-                  fontWeight: 800,
-                  marginLeft: 8
-                }}
-              >
-                {data.burnoutRisk ?? "—"}
-              </span>
-            </p>
+            
+            {/* Logic synchronization with Dashboard.jsx */}
+            {(() => {
+              const focusScore = data.focusScore ?? 0;
+              let riskLabel = "High";
+              let riskColor = "#dc2626";
+
+              if (focusScore > 75) {
+                riskLabel = "Low";
+                riskColor = "#16a34a";
+              } else if (focusScore > 50) {
+                riskLabel = "Moderate";
+                riskColor = "#ca8a04";
+              }
+
+              return (
+                <p className="burnout-info" style={{ marginTop: 16, fontSize: 15, fontWeight: 500, color: '#475569' }}>
+                  Burnout Risk:{" "}
+                  <span
+                    className="risk-value"
+                    style={{
+                      color: riskColor,
+                      fontWeight: 800,
+                      marginLeft: 8
+                    }}
+                  >
+                    {riskLabel}
+                  </span>
+                </p>
+              );
+            })()}
+
             {data.hasLiveSession && (
               <p className="live-notice" style={{ marginTop: 12, color: "#2563eb", fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#2563eb' }}></span>

@@ -1,7 +1,15 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine,
+  ComposedChart,
+  Area,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+  Scatter,
 } from "recharts";
 import { useSession } from "../context/SessionContext";
 import { getWellnessSessionsApi, getSessionWellnessApi } from "../utils/wellnessApi";
@@ -13,15 +21,27 @@ const EVENT_META = {
   DROWSY:         { color: "#f59e0b", icon: "😴", label: "Drowsiness"        },
   DISTRACTED:     { color: "#ef4444", icon: "👀", label: "Distracted"        },
   YAWN:           { color: "#f97316", icon: "🥱", label: "Yawn"              },
+  BAD_POSTURE:    { color: "#a855f7", icon: "🪑", label: "Poor Posture"      },
+  HEARTBEAT:      { color: "#6366f1", icon: "💓", label: "Steady Focus"      },
+  SESSION_START:  { color: "#3b82f6", icon: "▶️",  label: "Session Start"     },
+  SESSION_END:    { color: "#64748b", icon: "⏹️",  label: "Session End"       },
+  FOCUS_MODE_ON:  { color: "#8b5cf6", icon: "🎯", label: "Focus Mode On"     },
+  FOCUS_MODE_OFF: { color: "#64748b", icon: "🎯", label: "Focus Mode Off"    },
+  BREAK_START:    { color: "#14b8a6", icon: "☕", label: "Break Started"     },
+  BREAK_END:      { color: "#0d9488", icon: "☕", label: "Break Ended"       },
+  WAITING_START:  { color: "#eab308", icon: "⏳", label: "Waiting Started"   },
+  WAITING_END:    { color: "#ca8a04", icon: "⏳", label: "Waiting Ended"     },
 };
 
 const scoreColor = (score) => {
+  if (score === null || score === undefined) return "#94a3b8";
   if (score >= 80) return "#22c55e";
   if (score >= 55) return "#f59e0b";
   return "#ef4444";
 };
 
 const scoreGrade = (score) => {
+  if (score === null || score === undefined) return "No Data";
   if (score >= 90) return "Excellent";
   if (score >= 75) return "Good";
   if (score >= 55) return "Fair";
@@ -44,14 +64,19 @@ const CustomTooltip = ({ active, payload }) => {
   const meta = EVENT_META[d.eventType] || {};
   return (
     <div style={{
-      background: "#0f172a", border: "1px solid #1e293b",
-      borderRadius: 12, padding: "12px 16px", fontSize: 13,
-      color: "#f1f5f9", boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+      background: "#0f172a",
+      border: "1px solid #1e293b",
+      borderRadius: 12,
+      padding: "12px 16px",
+      fontSize: 13,
+      color: "#f1f5f9",
+      boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
       minWidth: 190,
+      pointerEvents: "none",
     }}>
       <div style={{ fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
         <span>{meta.icon}</span>
-        <span>{meta.label}</span>
+        <span>{meta.label || d.eventType}</span>
       </div>
       <div style={{ color: "#94a3b8", fontSize: 12, marginBottom: 6 }}>{d.timeLabel}</div>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
@@ -59,15 +84,346 @@ const CustomTooltip = ({ active, payload }) => {
         <span style={{ fontWeight: 700, color: scoreColor(d.score) }}>{d.score}</span>
       </div>
       {d.pointsDelta !== 0 && (
-        <div style={{
-          display: "flex", justifyContent: "space-between", marginTop: 4,
-        }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
           <span style={{ color: "#94a3b8" }}>Change</span>
           <span style={{ fontWeight: 700, color: d.pointsDelta > 0 ? "#22c55e" : "#ef4444" }}>
             {d.pointsDelta > 0 ? "+" : ""}{d.pointsDelta} pts
           </span>
         </div>
       )}
+      {d.appContext && (
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed #334155" }}>
+          <div style={{ color: "#94a3b8", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Active Application</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontWeight: 700, color: "#e2e8f0" }}>{d.appContext.app}</span>
+            <span style={{ fontSize: 11, background: "#1e293b", padding: "2px 6px", borderRadius: 4, color: "#cbd5e1" }}>
+              {d.appContext.category}
+            </span>
+          </div>
+          <div style={{ color: "#64748b", fontSize: 11, marginTop: 4 }}>
+            Segment Duration: {formatDur(d.appContext.duration)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Custom Dot renderer for the scatter layer ───────────────────────────────
+const EventDot = (props) => {
+  const { cx, cy, payload } = props;
+  if (!cx || !cy) return null;
+  if (payload.isVirtual || payload.eventType === "HEARTBEAT") return null;
+  const meta = EVENT_META[payload.eventType] || {};
+  const color = meta.color || "#2563eb";
+  return (
+    <g key={`dot-${payload.index}`}>
+      {/* Outer glow ring */}
+      <circle cx={cx} cy={cy} r={9} fill={color} fillOpacity={0.15} />
+      {/* Main dot */}
+      <circle cx={cx} cy={cy} r={5} fill={color} stroke="#fff" strokeWidth={2} />
+    </g>
+  );
+};
+
+// ─── Custom Active Dot ────────────────────────────────────────────────────────
+const ActiveDot = (props) => {
+  const { cx, cy, payload } = props;
+  if (!cx || !cy) return null;
+  const meta = EVENT_META[payload?.eventType] || {};
+  const color = meta.color || "#2563eb";
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={14} fill={color} fillOpacity={0.12} />
+      <circle cx={cx} cy={cy} r={8}  fill={color} stroke="#fff" strokeWidth={2.5} />
+    </g>
+  );
+};
+
+// ─── Reference band label ─────────────────────────────────────────────────────
+const BandLabel = ({ viewBox, label, color }) => {
+  const { x, y, width } = viewBox || {};
+  return (
+    <text
+      x={(x || 0) + (width || 0) - 6}
+      y={(y || 0) - 5}
+      fill={color}
+      fontSize={10}
+      fontWeight={700}
+      textAnchor="end"
+      fontFamily="system-ui"
+      opacity={0.8}
+    >
+      {label}
+    </text>
+  );
+};
+
+// ─── Wellness Timeline Graph (self-contained, industry-level) ─────────────────
+const WellnessTimelineGraph = ({ chartData }) => {
+  // ── Normalize data to use sequential index for stable X axis ──────────────
+  // Recharts struggles with large epoch timestamps as numeric XAxis keys.
+  // We keep the original timestamp for display but plot against index.
+  const data = chartData.map((d, i) => ({ ...d, index: i }));
+
+  // Deduce tick positions: pick up to 8 evenly-spaced indices
+  const tickIndices = (() => {
+    if (data.length <= 1) return [];
+    const max = 7;
+    const step = Math.max(1, Math.ceil((data.length - 1) / max));
+    const ticks = [];
+    for (let i = 0; i < data.length; i += step) ticks.push(i);
+    if (ticks[ticks.length - 1] !== data.length - 1) ticks.push(data.length - 1);
+    return ticks;
+  })();
+
+  const scoreMin = Math.max(0, Math.min(...data.map(d => d.score ?? 100)) - 10);
+
+  if (data.length <= 2) {
+    return (
+      <div style={{
+        textAlign: "center", padding: "56px 0",
+        background: "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)",
+        borderRadius: 14, border: "1.5px dashed #cbd5e1",
+      }}>
+        <div style={{ fontSize: 36, marginBottom: 12 }}>⏳</div>
+        <p style={{ fontSize: 14, fontWeight: 600, color: "#475569", margin: 0 }}>
+          Waiting for session data
+        </p>
+        <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
+          The graph will populate as the session progresses
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Score summary strip */}
+      <div style={{
+        display: "flex",
+        gap: 6,
+        marginBottom: 18,
+        padding: "10px 14px",
+        background: "linear-gradient(90deg, #f0f9ff, #f8fafc)",
+        borderRadius: 10,
+        border: "1px solid #e0f2fe",
+        flexWrap: "wrap",
+        alignItems: "center",
+      }}>
+        {[
+          { label: "Start", score: data[0]?.score },
+          { label: "Peak",  score: Math.max(...data.map(d => d.score ?? 0)) },
+          { label: "Low",   score: Math.min(...data.map(d => d.score ?? 100)) },
+          { label: "Final", score: data[data.length - 1]?.score },
+        ].map(({ label, score }) => (
+          <div key={label} style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "4px 12px",
+            borderRadius: 99,
+            background: "#fff",
+            border: `1px solid ${scoreColor(score)}40`,
+            fontSize: 12,
+          }}>
+            <span style={{ color: "#64748b", fontWeight: 500 }}>{label}</span>
+            <span style={{ fontWeight: 800, color: scoreColor(score) }}>{score ?? "—"}</span>
+          </div>
+        ))}
+        <div style={{ marginLeft: "auto", fontSize: 11, color: "#94a3b8", fontStyle: "italic" }}>
+          {data.filter(d => !d.isVirtual && d.eventType !== "HEARTBEAT").length} events plotted
+        </div>
+      </div>
+
+      {/* Main chart */}
+      <ResponsiveContainer width="100%" height={280}>
+        <ComposedChart
+          data={data}
+          margin={{ top: 16, right: 20, left: 0, bottom: 8 }}
+        >
+          <defs>
+            <linearGradient id="wg-lineColor" x1="0" y1="0" x2="1" y2="0">
+              {(() => {
+                const stops = [];
+                let inFocus = false;
+                if (data.length > 1) {
+                  data.forEach((d, i) => {
+                    const offset = (i / (data.length - 1)) * 100;
+                    if (d.eventType === "FOCUS_MODE_ON") {
+                      inFocus = true;
+                      stops.push(<stop key={`f-on-${i}`} offset={`${offset}%`} stopColor="#2563eb" />);
+                      stops.push(<stop key={`f-on2-${i}`} offset={`${offset}%`} stopColor="#f59e0b" />);
+                    } else if (d.eventType === "FOCUS_MODE_OFF") {
+                      inFocus = false;
+                      stops.push(<stop key={`f-off-${i}`} offset={`${offset}%`} stopColor="#f59e0b" />);
+                      stops.push(<stop key={`f-off2-${i}`} offset={`${offset}%`} stopColor="#2563eb" />);
+                    }
+                  });
+                  if (stops.length === 0) {
+                    stops.push(<stop key="start" offset="0%" stopColor="#2563eb" />);
+                    stops.push(<stop key="end" offset="100%" stopColor="#2563eb" />);
+                  } else {
+                    if (data[0].eventType !== "FOCUS_MODE_ON") stops.unshift(<stop key="start" offset="0%" stopColor="#2563eb" />);
+                    stops.push(<stop key="end" offset="100%" stopColor={inFocus ? "#f59e0b" : "#2563eb"} />);
+                  }
+                } else {
+                  stops.push(<stop key="start" offset="0%" stopColor="#2563eb" />);
+                  stops.push(<stop key="end" offset="100%" stopColor="#2563eb" />);
+                }
+                return stops;
+              })()}
+            </linearGradient>
+            <linearGradient id="wg-scoreGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"   stopColor="#2563eb" stopOpacity={0.22} />
+              <stop offset="60%"  stopColor="#2563eb" stopOpacity={0.06} />
+              <stop offset="100%" stopColor="#2563eb" stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="wg-goodZone" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"   stopColor="#22c55e" stopOpacity={0.06} />
+              <stop offset="100%" stopColor="#22c55e" stopOpacity={0.02} />
+            </linearGradient>
+            <filter id="wg-glow">
+              <feGaussianBlur stdDeviation="2.5" result="coloredBlur" />
+              <feMerge>
+                <feMergeNode in="coloredBlur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+
+          <CartesianGrid
+            strokeDasharray="3 4"
+            stroke="#e2e8f0"
+            strokeOpacity={0.7}
+            vertical={false}
+          />
+
+          {/* Good zone band (80–100) */}
+          <ReferenceLine
+            y={100}
+            stroke="transparent"
+            fill="url(#wg-goodZone)"
+          />
+          <ReferenceLine
+            y={80}
+            stroke="#22c55e"
+            strokeDasharray="5 4"
+            strokeOpacity={0.5}
+            strokeWidth={1.5}
+            label={<BandLabel label="Good ≥80" color="#22c55e" />}
+          />
+          <ReferenceLine
+            y={55}
+            stroke="#f59e0b"
+            strokeDasharray="5 4"
+            strokeOpacity={0.5}
+            strokeWidth={1.5}
+            label={<BandLabel label="Fair ≥55" color="#f59e0b" />}
+          />
+
+          <XAxis
+            dataKey="index"
+            type="number"
+            scale="linear"
+            domain={[0, data.length - 1]}
+            ticks={tickIndices}
+            tickFormatter={(idx) => {
+              const d = data[idx];
+              return d ? d.timeLabel : "";
+            }}
+            tick={{ fontSize: 11, fill: "#94a3b8", fontWeight: 500 }}
+            axisLine={{ stroke: "#e2e8f0" }}
+            tickLine={false}
+            interval="preserveStartEnd"
+            allowDataOverflow={false}
+          />
+
+          <YAxis
+            domain={[Math.max(0, scoreMin), 105]}
+            tick={{ fontSize: 11, fill: "#94a3b8", fontWeight: 500 }}
+            axisLine={false}
+            tickLine={false}
+            width={34}
+            tickCount={6}
+          />
+
+          <Tooltip
+            content={<CustomTooltip />}
+            cursor={{
+              stroke: "#2563eb",
+              strokeWidth: 1.5,
+              strokeDasharray: "4 3",
+              strokeOpacity: 0.5,
+            }}
+          />
+
+          {/* Area fill */}
+          <Area
+            type="monotoneX"
+            dataKey="score"
+            stroke="none"
+            fill="url(#wg-scoreGrad)"
+            isAnimationActive={true}
+            animationDuration={900}
+            animationEasing="ease-out"
+            dot={false}
+            activeDot={false}
+            connectNulls
+          />
+
+          {/* Main line with glow */}
+          <Line
+            type="monotoneX"
+            dataKey="score"
+            stroke="url(#wg-lineColor)"
+            strokeWidth={2.5}
+            dot={<EventDot />}
+            activeDot={<ActiveDot />}
+            isAnimationActive={true}
+            animationDuration={900}
+            animationEasing="ease-out"
+            connectNulls
+            style={{ filter: "url(#wg-glow)" }}
+          />
+        </ComposedChart>
+      </ResponsiveContainer>
+
+      {/* Legend */}
+      <div style={{
+        display: "flex",
+        gap: 14,
+        marginTop: 14,
+        flexWrap: "wrap",
+        padding: "10px 0 2px",
+        borderTop: "1px solid #f1f5f9",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#64748b" }}>
+          <div style={{ width: 22, borderTop: "2px dashed #22c55e", opacity: 0.7 }} />
+          <span>Good (≥80)</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#64748b" }}>
+          <div style={{ width: 22, borderTop: "2px dashed #f59e0b", opacity: 0.7 }} />
+          <span>Fair (≥55)</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#64748b" }}>
+          <div style={{
+            width: 22, height: 3, borderRadius: 2,
+            background: "linear-gradient(90deg, #2563eb, #60a5fa)",
+          }} />
+          <span>Wellness Score</span>
+        </div>
+        {Object.entries(EVENT_META)
+          .filter(([k]) => k !== "HEARTBEAT" && k !== "SESSION_START" && k !== "SESSION_END")
+          .map(([key, m]) => (
+            <div key={key} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#64748b" }}>
+              <div style={{
+                width: 9, height: 9, borderRadius: "50%",
+                background: m.color,
+                boxShadow: `0 0 4px ${m.color}60`,
+              }} />
+              <span>{m.label}</span>
+            </div>
+          ))}
+      </div>
     </div>
   );
 };
@@ -93,7 +449,8 @@ const ScoreRing = ({ score, size = 88 }) => {
 
 // ─── Session Card ─────────────────────────────────────────────────────────────
 const SessionCard = ({ session, isSelected, onClick }) => {
-  const score = session.finalWellnessScore ?? 100;
+  const score = session.finalWellnessScore;
+  const hasData = score !== null && score !== undefined;
   return (
     <div
       onClick={onClick}
@@ -119,13 +476,13 @@ const SessionCard = ({ session, isSelected, onClick }) => {
         </div>
         <div style={{ textAlign: "center", marginLeft: 12 }}>
           <div style={{ position: "relative", width: 48, height: 48 }}>
-            <ScoreRing score={score} size={48} />
+            <ScoreRing score={hasData ? score : 0} size={48} />
             <div style={{
               position: "absolute", inset: 0, display: "flex",
               flexDirection: "column", alignItems: "center", justifyContent: "center",
             }}>
-              <span style={{ fontSize: 11, fontWeight: 800, color: scoreColor(score) }}>
-                {score}
+              <span style={{ fontSize: hasData ? 11 : 9, fontWeight: 800, color: scoreColor(score) }}>
+                {hasData ? score : "N/A"}
               </span>
             </div>
           </div>
@@ -170,31 +527,58 @@ const WellnessInsights = () => {
   }, []);
 
   // ── Build chart data ────────────────────────────────────────────────────────
-  const chartData = (sessionData?.events || []).map((e) => ({
-    timeLabel:   new Date(e.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    score:       e.scoreSnapshot,
-    eventType:   e.eventType,
-    pointsDelta: e.pointsDelta,
-  }));
+  const chartData = (sessionData?.events || []).map((e) => {
+    const timestamp = new Date(e.timestamp).getTime();
+    let appContext = null;
+    if (sessionData?.appUsageTimeline) {
+      const segment = sessionData.appUsageTimeline.find(seg => {
+        const segStart = new Date(seg.start).getTime();
+        const segEnd   = new Date(seg.end).getTime();
+        return timestamp >= segStart && timestamp <= segEnd;
+      });
+      if (segment) appContext = segment;
+    }
+    
+    return {
+      timestamp,
+      timeLabel:   new Date(e.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      score:       e.scoreSnapshot,
+      eventType:   e.eventType,
+      pointsDelta: e.pointsDelta,
+      isVirtual:   e.isVirtual || false,
+      appContext,
+    };
+  });
+
+  // console.log(chartData)
+
+  const dataIntegrity   = sessionData?.dataIntegrity;
+  const finalScore      = sessionData?.finalWellnessScore;
+  const hasFinalData    = finalScore !== null && finalScore !== undefined;
 
   // ── Insight generation ──────────────────────────────────────────────────────
-  const buildInsights = (events = [], counts = {}) => {
+  const buildInsights = (counts = {}, integrity = null) => {
     const insights = [];
-    if (counts.YAWN >= 3)      insights.push({ icon: "🥱", text: `${counts.YAWN} yawn(s) detected. You may be fatigued — consider a 5-min walk or water break.` });
-    if (counts.DROWSY >= 2)    insights.push({ icon: "😴", text: `Drowsiness detected ${counts.DROWSY}x. Try stepping outside or splashing cold water on your face.` });
-    if (counts.DISTRACTED >= 3)insights.push({ icon: "👀", text: `${counts.DISTRACTED} distraction events. Consider turning on "Do Not Disturb" or using Focus Mode.` });
-    if (counts.FOCUSED >= 2)   insights.push({ icon: "✅", text: `Great work! You sustained ${counts.FOCUSED} consecutive focus streaks. Keep it up!` });
-    if (counts.BREAK_RECOVERY) insights.push({ icon: "🔋", text: `Post-break recovery was strong. Your breaks are working well.` });
-
-    // No events at all — camera was off
-    if (events.length === 0)   insights.push({ icon: "📷", text: "No biometric events were recorded. The camera may have been off during this session." });
-
-    if (insights.length === 0) insights.push({ icon: "⭐", text: "Excellent session! No wellness concerns were detected." });
+    if (counts.YAWN >= 3)        insights.push({ icon: "🥱", text: `${counts.YAWN} yawn(s) detected. You may be fatigued — consider a 5-min walk or water break.` });
+    if (counts.DROWSY >= 2)      insights.push({ icon: "😴", text: `Drowsiness detected ${counts.DROWSY}x. Try stepping outside or splashing cold water on your face.` });
+    if (counts.DISTRACTED >= 3)  insights.push({ icon: "👀", text: `${counts.DISTRACTED} distraction events. Consider turning on "Do Not Disturb" or using Focus Mode.` });
+    if (counts.FOCUSED >= 2)     insights.push({ icon: "✅", text: `Great work! You sustained ${counts.FOCUSED} consecutive focus streaks. Keep it up!` });
+    if (counts.BREAK_RECOVERY)   insights.push({ icon: "🔋", text: `Post-break recovery was strong. Your breaks are working well.` });
+    if (counts.BAD_POSTURE >= 2) insights.push({ icon: "🪑", text: `Poor posture detected ${counts.BAD_POSTURE}x. Adjust your chair/monitor height.` });
+    if (Object.keys(counts).length === 0) {
+      if (integrity && integrity.trackedPercentage < 10) {
+        insights.push({ icon: "📷", text: "No biometric events were recorded. The camera was likely off during this session." });
+      } else {
+        insights.push({ icon: "🎯", text: "Perfect focus maintained! No negative biometric events were recorded while the camera was active." });
+      }
+    } else if (insights.length === 0) {
+      insights.push({ icon: "⭐", text: "Excellent session! No major wellness concerns were detected." });
+    }
     return insights;
   };
 
-  const insights = buildInsights(sessionData?.events, sessionData?.eventCounts || {});
-  const finalScore = sessionData?.finalWellnessScore ?? 100;
+  const insights       = buildInsights(sessionData?.eventCounts || {}, dataIntegrity);
+  const proactiveAlerts = sessionData?.proactiveAlerts || [];
 
   return (
     <div style={{ background: "#f8fafc", minHeight: "100vh", fontFamily: "'Inter', system-ui, sans-serif", padding: 24 }}>
@@ -207,7 +591,7 @@ const WellnessInsights = () => {
         Your private biometric health history. This data is never shared with your organization.
       </p>
 
-      {/* ── Live Score Banner (only when session running) ───────────────── */}
+      {/* ── Live Score Banner ───────────────────────────────────────────── */}
       {workSessionState.running && (
         <div className="wg-card" style={{
           padding: "20px 24px", marginBottom: 24,
@@ -254,7 +638,6 @@ const WellnessInsights = () => {
           <p style={{ margin: "0 0 12px", fontWeight: 700, fontSize: 12, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em" }}>
             Recent Sessions
           </p>
-
           {loadingSessions ? (
             <div className="wg-card" style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 14 }}>
               Loading sessions…
@@ -322,16 +705,15 @@ const WellnessInsights = () => {
                     </p>
                   </div>
 
-                  {/* Score + Grade */}
                   <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
                     <div style={{ position: "relative", width: 80, height: 80 }}>
-                      <ScoreRing score={finalScore} size={80} />
+                      <ScoreRing score={hasFinalData ? finalScore : 0} size={80} />
                       <div style={{
                         position: "absolute", inset: 0, display: "flex",
                         flexDirection: "column", alignItems: "center", justifyContent: "center",
                       }}>
-                        <span style={{ fontSize: 18, fontWeight: 800, color: scoreColor(finalScore) }}>
-                          {finalScore}
+                        <span style={{ fontSize: hasFinalData ? 18 : 14, fontWeight: 800, color: scoreColor(finalScore) }}>
+                          {hasFinalData ? finalScore : "—"}
                         </span>
                       </div>
                     </div>
@@ -344,11 +726,10 @@ const WellnessInsights = () => {
                   </div>
                 </div>
 
-                {/* Event count pills */}
                 {Object.keys(sessionData.eventCounts || {}).length > 0 && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 20 }}>
                     {Object.entries(sessionData.eventCounts).map(([type, count]) => {
-                      const meta = EVENT_META[type] || {};
+                      const meta = EVENT_META[type] || { color: "#94a3b8", icon: "•", label: type };
                       return (
                         <span key={type} style={{
                           display: "inline-flex", alignItems: "center", gap: 5,
@@ -363,81 +744,58 @@ const WellnessInsights = () => {
                     })}
                   </div>
                 )}
+
+                {dataIntegrity && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14 }}>
+                    <span style={{
+                      fontSize: 11, fontWeight: 600, padding: "3px 10px",
+                      borderRadius: 99, color: dataIntegrity.trackedPercentage >= 80 ? "#16a34a" : "#d97706",
+                      background: dataIntegrity.trackedPercentage >= 80 ? "#f0fdf4" : "#fffbeb",
+                      border: `1px solid ${dataIntegrity.trackedPercentage >= 80 ? "#bbf7d0" : "#fde68a"}`,
+                    }}>
+                      📊 {dataIntegrity.trackedPercentage}% Session Tracked
+                    </span>
+                    {dataIntegrity.gaps?.length > 0 && (
+                      <span style={{ fontSize: 11, color: "#94a3b8" }}>
+                        ({dataIntegrity.gaps.length} gap{dataIntegrity.gaps.length > 1 ? "s" : ""} detected)
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* Wellness Timeline Graph */}
+              {/* ── Wellness Timeline Graph Card ──────────────────────────── */}
               <div className="wg-card" style={{ padding: 24, borderRadius: 16, marginBottom: 20 }}>
                 <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 12, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                   Wellness Timeline
                 </p>
-                <p style={{ margin: "0 0 20px", fontSize: 13, color: "#94a3b8" }}>
+                <p style={{ margin: "0 0 16px", fontSize: 13, color: "#94a3b8" }}>
                   Score changes over the course of your session. Hover on a point to see the event.
                 </p>
-
-                {chartData.length === 0 ? (
-                  <div style={{ textAlign: "center", padding: 40, color: "#94a3b8" }}>
-                    <div style={{ fontSize: 32, marginBottom: 8 }}>📷</div>
-                    <p style={{ fontSize: 14, margin: 0 }}>No biometric events recorded (camera was likely off).</p>
-                  </div>
-                ) : (
-                  <>
-                    <ResponsiveContainer width="100%" height={240}>
-                      <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%"   stopColor="#2563eb" stopOpacity={0.15} />
-                            <stop offset="95%"  stopColor="#2563eb" stopOpacity={0} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                        <XAxis dataKey="timeLabel" tick={{ fontSize: 11, fill: "#94a3b8" }} />
-                        <YAxis domain={[0, 105]} tick={{ fontSize: 11, fill: "#94a3b8" }} />
-                        <Tooltip content={<CustomTooltip />} />
-                        <ReferenceLine y={80} stroke="#22c55e" strokeDasharray="4 4" strokeOpacity={0.6} />
-                        <ReferenceLine y={55} stroke="#f59e0b" strokeDasharray="4 4" strokeOpacity={0.6} />
-                        <Area
-                          type="monotone"
-                          dataKey="score"
-                          stroke="#2563eb"
-                          strokeWidth={2.5}
-                          fill="url(#scoreGrad)"
-                          dot={(props) => {
-                            const { cx, cy, payload } = props;
-                            const meta = EVENT_META[payload.eventType] || {};
-                            return (
-                              <circle
-                                key={`dot-${payload.timeLabel}`}
-                                cx={cx} cy={cy} r={5}
-                                fill={meta.color || "#2563eb"}
-                                stroke="#fff" strokeWidth={2}
-                              />
-                            );
-                          }}
-                          activeDot={{ r: 7, strokeWidth: 2, stroke: "#fff" }}
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
-
-                    {/* Graph Legend */}
-                    <div style={{ display: "flex", gap: 16, marginTop: 12, flexWrap: "wrap" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#64748b" }}>
-                        <div style={{ width: 20, borderTop: "2px dashed #22c55e" }} />
-                        Good (≥80)
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#64748b" }}>
-                        <div style={{ width: 20, borderTop: "2px dashed #f59e0b" }} />
-                        Fair (≥55)
-                      </div>
-                      {Object.entries(EVENT_META).map(([key, m]) => (
-                        <div key={key} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#64748b" }}>
-                          <div style={{ width: 9, height: 9, borderRadius: "50%", background: m.color }} />
-                          {m.label}
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
+                <WellnessTimelineGraph chartData={chartData} />
               </div>
+
+              {/* Proactive Alerts */}
+              {proactiveAlerts.length > 0 && (
+                <div style={{ marginBottom: 20 }}>
+                  {proactiveAlerts.map((alert, i) => (
+                    <div key={i} style={{
+                      padding: "16px 20px", borderRadius: 14, marginBottom: 10,
+                      display: "flex", gap: 14, alignItems: "center",
+                      background: alert.severity === "high" ? "#fef2f2" : "#fffbeb",
+                      border: `1px solid ${alert.severity === "high" ? "#fecaca" : "#fde68a"}`,
+                    }}>
+                      <span style={{ fontSize: 24 }}>{alert.icon}</span>
+                      <div>
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: alert.severity === "high" ? "#dc2626" : "#d97706" }}>
+                          {alert.title}
+                        </p>
+                        <p style={{ margin: "4px 0 0", fontSize: 13, color: "#64748b" }}>{alert.message}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* Insights */}
               <div className="wg-card" style={{ padding: 24, borderRadius: 16 }}>
@@ -463,7 +821,6 @@ const WellnessInsights = () => {
         </div>
       </div>
 
-      {/* Shared card styles to match AttendanceSummary */}
       <style>{`
         .wg-card {
           background: #ffffff;

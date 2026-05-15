@@ -23,10 +23,10 @@ router.post("/liveness/missed", authMiddleware, markMissed);
 // Sync session productivity metrics into DailyActivity
 router.post("/sync", authMiddleware, syncSessionTotals);
 
-// Full daily record for dashboard
-router.get("/today/:empId", authMiddleware, getToday);
+// Full daily record for dashboard (no empId needed — uses JWT)
+router.get("/today", authMiddleware, getToday);
 
-// Lightweight liveness schedule — used by frontend scheduler
-router.get("/liveness-status/:empId", authMiddleware, getLivenessStatus);
+// Lightweight liveness schedule — used by frontend scheduler (no empId needed — uses JWT)
+router.get("/liveness-status", authMiddleware, getLivenessStatus);
 
 module.exports = router;

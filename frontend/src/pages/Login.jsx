@@ -100,7 +100,6 @@ const Login = () => {
       setMsg("🔐 Logging in...");
 
       const response = await loginEmployee(email.trim() || undefined, password, empId.trim());
-      console.log(response)
 
       if (!response.success) {
         setMsg("❌ " + (response.message || "Login failed"));

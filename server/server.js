@@ -16,7 +16,7 @@ const corsOptions = {
   ], // Vite dev server + admin app + Electron
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-admin-key"],
 };
 
 app.use(cors(corsOptions));
@@ -27,25 +27,27 @@ app.use(express.urlencoded({ extended: true }));
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected"))
   .catch(err => console.log("❌ MongoDB Error:", err));
+  
+// Admin — /api/admin/employees
+app.use("/api/admin", require("./routes/adminRoutes"));
 
-// Routes
+// Auth Routes
 app.use(require("./routes/authRoutes"));
+
+// Consent Routes
 app.use(require("./routes/consentRoutes"));
-
-// Session management — /attendance/start, /stop, /resume, /checkpoint, etc.
-app.use("/attendance", require("./routes/session.routes"));
-
-// Work Report & Attendance Summary — /api/report/today/:empId, /summary/:empId, etc.
-app.use("/api/report", require("./routes/reportRoutes"));
 
 // DailyActivity — /api/daily/liveness, /sync, /today/:empId, /liveness-status/:empId
 app.use("/api/daily", require("./routes/dailyActivityRoutes"));
 
+// Work Report & Attendance Summary — /api/report/today/:empId, /summary/:empId, etc.
+app.use("/api/report", require("./routes/reportRoutes"));
+
+// Session management — /attendance/start, /stop, /resume, /checkpoint, etc.
+app.use("/attendance", require("./routes/session.routes"));
+
 // Biometric telemetry from Electron — /api/telemetry/liveness
 app.use("/api/telemetry", require("./routes/telemetryRoutes"));
-
-// Admin — /api/admin/employees
-app.use("/api/admin", require("./routes/adminRoutes"));
 
 // Wellness insights (employee-private) — /api/wellness/event, /session/:id, /sessions/:empId
 app.use("/api/wellness", require("./routes/wellnessRoutes"));

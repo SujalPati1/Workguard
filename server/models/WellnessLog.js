@@ -34,7 +34,12 @@ const wellnessLogSchema = new mongoose.Schema(
     // Type of biometric event detected
     eventType: {
       type:    String,
-      enum:    ["FOCUSED", "DROWSY", "DISTRACTED", "YAWN", "BAD_POSTURE", "BREAK_RECOVERY"],
+      enum:    [
+        "FOCUSED", "DROWSY", "DISTRACTED", "YAWN", "BAD_POSTURE", 
+        "BREAK_RECOVERY", "HEARTBEAT",
+        "FOCUS_MODE_ON", "FOCUS_MODE_OFF", "BREAK_START", 
+        "BREAK_END", "WAITING_START", "WAITING_END"
+      ],
       required: true,
     },
 
@@ -59,9 +64,17 @@ const wellnessLogSchema = new mongoose.Schema(
       type:    String,
       default: "",
     },
+    // Data Retention: MongoDB TTL index will automatically delete this document
+    // when the clock hits this date. Calculated based on user consent.
+    expiresAt: {
+      type:  Date,
+    },
   },
   { timestamps: true }
 );
+
+// TTL Index: Delete document when expiresAt is reached
+wellnessLogSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 // Compound index for the primary query: "give me all events for session X in order"
 wellnessLogSchema.index({ sessionId: 1, timestamp: 1 });

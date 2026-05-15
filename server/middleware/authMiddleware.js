@@ -24,11 +24,15 @@ module.exports = (req, res, next) => {
     next();
 
   } catch (err) {
-    console.log("JWT ERROR:", err.message);
+    // If it's just a routine expiration, don't flood the console. 
+    // The frontend will catch the 401 and refresh the token.
+    if (err.name !== "TokenExpiredError") {
+      console.error("JWT AUTH ERROR:", err.message);
+    }
 
     return res.status(401).json({
       success:false,
-      message:"Invalid Token"
+      message: err.name === "TokenExpiredError" ? "Token expired" : "Invalid Token"
     });
   }
 };

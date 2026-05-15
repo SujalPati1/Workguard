@@ -29,6 +29,39 @@ exports.saveConsent = async (req, res) => {
       { upsert: true, new: true, runValidators: true }
     );
 
+    // ── DATA RETENTION: Re-expire historical data ───────────────────────────
+    // If the user changed their retention policy, we must update the 'expiresAt' 
+    // for all their existing logs so they are queued for deletion correctly.
+    try {
+      const match = req.body.retention.match(/(\d+)/);
+      if (match) {
+        const retentionDays = parseInt(match[1], 10);
+        const WellnessLog = require("../models/WellnessLog");
+
+        // We use the 'createdAt' date of each log as the anchor for expiration.
+        // Formula: expiresAt = createdAt + new_retention_days
+        // Note: MongoDB TTL index will handle the actual deletion.
+        const logs = await WellnessLog.find({ empId: user.empId });
+        
+        const bulkOps = logs.map(log => {
+          const newExpiry = new Date(log.createdAt);
+          newExpiry.setDate(newExpiry.getDate() + retentionDays);
+          return {
+            updateOne: {
+              filter: { _id: log._id },
+              update: { $set: { expiresAt: newExpiry } }
+            }
+          };
+        });
+
+        if (bulkOps.length > 0) {
+          await WellnessLog.bulkWrite(bulkOps);
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to re-expire historical wellness logs:", e);
+    }
+
     return res.status(200).json({
       success: true,
       data: saved,

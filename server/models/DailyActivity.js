@@ -11,11 +11,11 @@ const mongoose = require("mongoose");
  */
 const livenessSlotSchema = new mongoose.Schema(
   {
-    slotIndex:   { type: Number, required: true },   // 1, 2, or 3
+    slotIndex: { type: Number, required: true },   // 1, 2, or 3
 
     status: {
-      type:    String,
-      enum:    ["PENDING", "PASSED", "MISSED"],
+      type: String,
+      enum: ["PENDING", "PASSED", "MISSED"],
       default: "PENDING",
     },
 
@@ -23,7 +23,7 @@ const livenessSlotSchema = new mongoose.Schema(
     triggerPlatformSeconds: { type: Number, default: 0 },
 
     // When the popup was shown (set when the modal opens)
-    shownAt:     { type: Date, default: null },
+    shownAt: { type: Date, default: null },
 
     // When the employee actually verified (null if MISSED)
     completedAt: { type: Date, default: null },
@@ -43,14 +43,14 @@ const dailyActivitySchema = new mongoose.Schema(
 
     // ── Liveness Compliance ───────────────────────────────────────────────────
     livenessSlots: {
-      type:    [livenessSlotSchema],
+      type: [livenessSlotSchema],
       default: () => [
         { slotIndex: 1, status: "PENDING" },
         { slotIndex: 2, status: "PENDING" },
         { slotIndex: 3, status: "PENDING" },
       ],
     },
-    totalLivenessPassed:   { type: Number, default: 0 },
+    totalLivenessPassed: { type: Number, default: 0 },
     totalLivenessRequired: { type: Number, default: 3 },
 
     // ── Platform Presence (Heartbeat-driven) ─────────────────────────────────
@@ -62,36 +62,36 @@ const dailyActivitySchema = new mongoose.Schema(
     lastHeartbeat: { type: Date, default: null },
 
     // ── Session Time Aggregation (productivity metrics, NOT attendance) ───────
-    totalActiveTime:  { type: Number, default: 0 },   // seconds
-    totalIdleTime:    { type: Number, default: 0 },
+    totalActiveTime: { type: Number, default: 0 },   // seconds
+    totalIdleTime: { type: Number, default: 0 },
     totalWaitingTime: { type: Number, default: 0 },
-    totalBreakTime:   { type: Number, default: 0 },
-    totalDuration:    { type: Number, default: 0 },   // wall-clock across sessions
-    sessionCount:     { type: Number, default: 0 },
+    totalBreakTime: { type: Number, default: 0 },
+    totalDuration: { type: Number, default: 0 },   // wall-clock across sessions
+    sessionCount: { type: Number, default: 0 },
 
     // References to individual Session documents for drill-down
     sessions: [{ type: mongoose.Schema.Types.ObjectId, ref: "Session" }],
 
     // ── Work Quality Insights ─────────────────────────────────────────────────
-    firstLogin:        { type: Date,   default: null },
-    lastActivity:      { type: Date,   default: null },
+    firstLogin: { type: Date, default: null },
+    lastActivity: { type: Date, default: null },
     averageFocusScore: { type: Number, default: 0 },
-    distractionCount:  { type: Number, default: 0 },
+    distractionCount: { type: Number, default: 0 },
 
     // ── Biometric Wellness (accumulated from 60-s wellness-sync pings) ────────
     // averageStrainScore: rolling average of cognitive_tracker strain_score (0–1)
-    averageStrainScore:   { type: Number, default: 0 },
+    averageStrainScore: { type: Number, default: 0 },
     // totalDistractions: cumulative count of away-from-screen events this day
-    totalDistractions:    { type: Number, default: 0 },
+    totalDistractions: { type: Number, default: 0 },
     // flowDurationMins: highest single uninterrupted Deep-Work block this day (minutes)
-    flowDurationMins:     { type: Number, default: 0 },
+    flowDurationMins: { type: Number, default: 0 },
     // wellnessPingCount: number of wellness syncs received (used to compute rolling avg)
-    wellnessPingCount:    { type: Number, default: 0 },
+    wellnessPingCount: { type: Number, default: 0 },
 
     // ── Final Daily Verdict ───────────────────────────────────────────────────
     attendanceResult: {
-      type:    String,
-      enum:    ["ABSENT", "PARTIAL", "PRESENT"],
+      type: String,
+      enum: ["ABSENT", "PARTIAL", "PRESENT"],
       default: "ABSENT",
     },
     complianceScore: { type: Number, default: 0 },  // 0–100 %
