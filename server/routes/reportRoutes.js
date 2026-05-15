@@ -12,13 +12,13 @@ const {
 // so employees can only ever fetch their own data once the middleware
 // confirms a valid JWT.
 
-// GET /api/report/today/:empId
-router.get("/today/:empId", authMiddleware, getTodayReport);
+// GET /api/report/today
+router.get("/today", authMiddleware, getTodayReport);
 
-// GET /api/report/summary/:empId?months=3
-router.get("/summary/:empId", authMiddleware, getAttendanceSummary);
+// GET /api/report/summary?months=3
+router.get("/summary", authMiddleware, getAttendanceSummary);
 
-// GET /api/report/history/:empId?page=1&limit=10
-router.get("/history/:empId", authMiddleware, getSessionHistory);
+// GET /api/report/history?page=1&limit=10
+router.get("/history", authMiddleware, getSessionHistory);
 
 module.exports = router;

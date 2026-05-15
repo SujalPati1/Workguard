@@ -46,4 +46,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   app: {
     getReadyState: () => ipcRenderer.invoke('app:get-ready-state'),
   },
+  
+  // ── Native UI / Notifications ─────────────────────────────────────────────
+  notification: {
+    /** Show a native system notification. */
+    show: (opts) => ipcRenderer.invoke('notification:show', opts),
+  },
 });

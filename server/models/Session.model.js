@@ -43,6 +43,22 @@ const sessionSchema = new mongoose.Schema(
         breakTime: { type: Number, default: 0 },
       },
     ],
+
+    // High-fidelity App Usage Tracking
+    appUsageSummary: {
+      type: Map,
+      of: Number, // Stores total seconds per app name
+      default: {},
+    },
+    appUsageTimeline: [
+      {
+        app: { type: String, required: true },
+        category: { type: String, required: true },
+        start: { type: Date, required: true },
+        end: { type: Date, required: true },
+        duration: { type: Number, required: true },
+      },
+    ],
   },
   { timestamps: true }
 );

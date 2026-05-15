@@ -55,8 +55,16 @@ const generateTriggerSeconds = (thresholdSeconds) => {
 };
 
 // ── Internal helper: get or create today's record ─────────────────────────────
+const getLocalDateString = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const getOrCreate = async (empId) => {
-  const today = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+  const today = getLocalDateString(); // "YYYY-MM-DD" in local time
 
   let daily = await DailyActivity.findOne({ empId, date: today });
 
@@ -122,10 +130,18 @@ const recalcAttendance = (daily) => {
 
 exports.heartbeat = async (req, res) => {
   try {
-    const { empId } = req.body;
-    if (!empId) {
-      return res.status(400).json({ success: false, message: "empId is required" });
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
     }
+
+    // Resolve empId from the User record (ObjectId → empId string)
+    const User = require("../models/User");
+    const user = await User.findById(userId).select("empId");
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    const empId = user.empId;
 
     const daily = await getOrCreate(empId);
     const now = new Date();
@@ -151,6 +167,7 @@ exports.heartbeat = async (req, res) => {
       success: true,
       totalPlatformTime: daily.totalPlatformTime,
       attendanceResult:  daily.attendanceResult,
+      date:              daily.date,
     });
   } catch (err) {
     console.error("heartbeat error:", err);
@@ -165,10 +182,16 @@ exports.heartbeat = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.markMissed = async (req, res) => {
   try {
-    const { empId, slotIndex } = req.body;
-    if (!empId || !slotIndex) {
-      return res.status(400).json({ success: false, message: "empId and slotIndex are required" });
+    const userId = req.user?.id;
+    const { slotIndex } = req.body;
+    if (!userId || !slotIndex) {
+      return res.status(400).json({ success: false, message: "slotIndex is required" });
     }
+
+    const User = require("../models/User");
+    const user = await User.findById(userId).select("empId");
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+    const empId = user.empId;
 
     const daily = await getOrCreate(empId);
     const slot  = daily.livenessSlots.find((s) => s.slotIndex === slotIndex);
@@ -205,10 +228,16 @@ exports.markMissed = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.recordLiveness = async (req, res) => {
   try {
-    const { empId, slotIndex, score } = req.body;
-    if (!empId || !slotIndex) {
-      return res.status(400).json({ success: false, message: "empId and slotIndex are required" });
+    const userId = req.user?.id;
+    const { slotIndex, score } = req.body;
+    if (!userId || !slotIndex) {
+      return res.status(400).json({ success: false, message: "slotIndex is required" });
     }
+
+    const User = require("../models/User");
+    const user = await User.findById(userId).select("empId");
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+    const empId = user.empId;
 
     const daily = await getOrCreate(empId);
     const slot  = daily.livenessSlots.find((s) => s.slotIndex === slotIndex);
@@ -250,10 +279,16 @@ exports.recordLiveness = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.syncSessionTotals = async (req, res) => {
   try {
-    const { empId, activeTime, idleTime, waitingTime, breakTime, totalDuration, sessionId } = req.body;
-    if (!empId) {
-      return res.status(400).json({ success: false, message: "empId is required" });
+    const userId = req.user?.id;
+    const { activeTime, idleTime, waitingTime, breakTime, totalDuration, sessionId } = req.body;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
     }
+
+    const User = require("../models/User");
+    const user = await User.findById(userId).select("empId");
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+    const empId = user.empId;
 
     const daily = await getOrCreate(empId);
 
@@ -296,13 +331,17 @@ exports.syncSessionTotals = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.getToday = async (req, res) => {
   try {
-    const { empId } = req.params;
-    if (!empId) {
-      return res.status(400).json({ success: false, message: "empId is required" });
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
     }
 
-    const daily = await getOrCreate(empId);
+    const User = require("../models/User");
+    const user = await User.findById(userId).select("empId");
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+    const empId = user.empId;
 
+    const daily = await getOrCreate(empId);
     return res.status(200).json({ success: true, daily });
   } catch (err) {
     console.error("getToday error:", err);
@@ -317,10 +356,15 @@ exports.getToday = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.getLivenessStatus = async (req, res) => {
   try {
-    const { empId } = req.params;
-    if (!empId) {
-      return res.status(400).json({ success: false, message: "empId is required" });
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
     }
+
+    const User = require("../models/User");
+    const user = await User.findById(userId).select("empId");
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+    const empId = user.empId;
 
     const daily = await getOrCreate(empId);
 

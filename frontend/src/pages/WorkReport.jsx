@@ -41,7 +41,7 @@ const WorkReport = () => {
     setMsg("");
 
     try {
-      const data = await getAttendanceSummaryApi(employee.empId, 3);
+      const data = await getAttendanceSummaryApi(3);
 
       if (!data.success) {
         setMsg(data.message || "Failed to load summary");
@@ -75,7 +75,7 @@ const WorkReport = () => {
     setMsg("Generating report...");
 
     try {
-      const data = await getTodayReportApi(employee.empId);
+      const data = await getTodayReportApi();
 
       if (!data.success) {
         setMsg(data.message || "Error generating report");

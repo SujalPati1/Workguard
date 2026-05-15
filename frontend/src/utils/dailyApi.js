@@ -31,33 +31,33 @@ const request = async (url, options = {}) => {
   return body;
 };
 
-/** Get today's full DailyActivity record */
-export const getDailyTodayApi = (empId) =>
-  request(`${BASE}/today/${empId}`);
+/** Get today's full DailyActivity record (no empId needed — uses JWT) */
+export const getDailyTodayApi = () =>
+  request(`${BASE}/today`);
 
-/** Get liveness schedule (triggerTimes, slot statuses) */
-export const getLivenessStatusApi = (empId) =>
-  request(`${BASE}/liveness-status/${empId}`);
+/** Get liveness schedule (triggerTimes, slot statuses) (no empId needed — uses JWT) */
+export const getLivenessStatusApi = () =>
+  request(`${BASE}/liveness-status`);
 
 /** Record a liveness verification (frontend fallback — normally done by Electron) */
 export const recordLivenessApi = (payload) =>
   request(`${BASE}/liveness`, {
     method: "POST",
-    body:   JSON.stringify(payload),
+    body:   JSON.stringify(payload), // payload: { slotIndex, score }
   });
 
 /** Mark a liveness slot as MISSED (popup timed out) */
 export const markLivenessMissedApi = (payload) =>
   request(`${BASE}/liveness/missed`, {
     method: "POST",
-    body:   JSON.stringify(payload),
+    body:   JSON.stringify(payload), // payload: { slotIndex }
   });
 
-/** Heartbeat — called every 2 min to accumulate platform time */
-export const heartbeatApi = (empId) =>
+/** Heartbeat — called every 2 min to accumulate platform time (no empId needed — uses JWT) */
+export const heartbeatApi = () =>
   request(`${BASE}/heartbeat`, {
     method: "POST",
-    body:   JSON.stringify({ empId }),
+    body:   JSON.stringify({}),
   });
 
 /** Sync session productivity totals into DailyActivity */

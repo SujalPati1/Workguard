@@ -21,7 +21,16 @@ exports.recordLiveness = async (req, res) => {
       return res.status(400).json({ success: false, message: "slotIndex is required" });
     }
 
-    const daily = await getOrCreateDaily(empId);
+    // Resolve the standardized empId string from the authenticated user
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+    const User = require("../models/User");
+    const user = await User.findById(userId).select("empId");
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const empIdStr = user.empId;
+
+    const daily = await getOrCreateDaily(empIdStr);
 
     // Find the slot
     const slot = daily.livenessSlots.find((s) => s.slotIndex === slotIndex);
@@ -86,7 +95,6 @@ exports.recordLiveness = async (req, res) => {
 exports.wellnessSync = async (req, res) => {
   try {
     const {
-      empId,
       strainScore      = 0,
       flowDurationMins = 0,
       isFragmented     = false,
@@ -94,11 +102,16 @@ exports.wellnessSync = async (req, res) => {
       status           = "Unknown",
     } = req.body;
 
-    if (!empId) {
-      return res.status(400).json({ success: false, message: "empId is required" });
-    }
+    // Resolve the standardized empId string from the authenticated user
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
-    const daily = await getOrCreateDaily(empId);
+    const User = require("../models/User");
+    const user = await User.findById(userId).select("empId");
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const empIdStr = user.empId;
+
+    const daily = await getOrCreateDaily(empIdStr);
 
     // ── Rolling average for strain score ─────────────────────────────────────
     // Formula: new_avg = (old_avg * n + new_value) / (n + 1)

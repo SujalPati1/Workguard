@@ -1,5 +1,5 @@
 // electron/main.js
-const { app, BrowserWindow, ipcMain, net } = require('electron');
+const { app, BrowserWindow, ipcMain, net, Notification } = require('electron');
 const path = require('path');
 const zmq = require('zeromq');
 const { spawn } = require('child_process');
@@ -214,6 +214,25 @@ ipcMain.handle('engine:update-consent', (_evt, payload) => {
 /** React stores the current session context so Electron can auth server calls. */
 ipcMain.handle('engine:set-session-ctx', (_evt, ctx) => {
   global.currentSessionCtx = ctx;
+  return { ok: true };
+});
+
+/** Show a native system notification. */
+ipcMain.handle('notification:show', (_evt, { title, body }) => {
+  const notify = new Notification({
+    title: title || 'Workguard',
+    body: body || '',
+    // icon: path.join(__dirname, 'assets/logo.png') // Uncomment if you have an icon
+  });
+
+  notify.on('click', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+
+  notify.show();
   return { ok: true };
 });
 

@@ -24,6 +24,11 @@ export const SessionProvider = ({ children }) => {
     }
   });
 
+  const employeeRef = useRef(employee);
+  useEffect(() => {
+    employeeRef.current = employee;
+  }, [employee]);
+
   const [accessToken, setAccessToken] = useState(() => {
     return localStorage.getItem("wg_accessToken") || null;
   });
@@ -56,17 +61,18 @@ export const SessionProvider = ({ children }) => {
   // ===== WELLNESS SCORE STATE =====
   // Per-session score, starts at 100, adjusted by biometric alerts.
   // Completely separate from Idle logic. Employee-private.
-  const sessionWellnessScoreRef = useRef(100); // ref for async access in callbacks
+  const sessionWellnessScoreRef = useRef(100); // ref for async access in callbacks (still kept for live UI display)
   const [sessionWellnessScore, setSessionWellnessScore] = useState(100);
 
   // Throttle state for wellness event firing — prevents high-freq engine data spam.
   // All timers and edge-detection state lives here as a single mutable object ref.
   const wellnessThrottleRef = useRef({
-    lastStatus:     null,  // last engine status string seen
+    lastStatus:              null,  // last engine status string seen
     lastYawnMs:              null,  // timestamp of last yawn event fired
     distractedAccumulatorMs: 0,     // accumulated distraction time (ms)
     focusedStartMs:          null,  // timestamp when current focus streak started
     lastStreakCount:         0,     // how many 5-min streaks have already been rewarded
+    lastHeartbeatMs:         null,  // timestamp of last HEARTBEAT event fired (every 10 min)
   });
 
   // ===== WORK SESSION STATE =====
@@ -122,6 +128,11 @@ export const SessionProvider = ({ children }) => {
   const offTaskSecondsRef     = useRef(0);     // accumulated seconds in Social/Media
   const lastTelemetryTimeRef  = useRef(null);  // wall-clock of last telemetry frame
 
+  // App Usage Tracking Refs
+  const appUsageSummaryRef    = useRef({});
+  const appUsageTimelineRef   = useRef([]);
+  const activeAppRef          = useRef({ app: "Unknown", category: "Unknown", start: null });
+
   useEffect(() => {
     if (!isElectron()) return;
     const unsub = window.electronAPI.onTelemetry((data) => {
@@ -148,6 +159,43 @@ export const SessionProvider = ({ children }) => {
         // Reset the grace-period timer as soon as they return to any work-related category
         offTaskSecondsRef.current = 0;
       }
+
+      // --- High-fidelity App Usage Tracking ---
+      const currentSession = workSessionRef.current;
+      if (data.app_context && currentSession.running && currentSession.workStatus !== 'BREAK') {
+        const { base_app, category: appCategory } = data.app_context;
+        const now = new Date();
+        const activeApp = activeAppRef.current;
+
+        if (!activeApp.start) {
+          // Initialize first app
+          activeAppRef.current = { app: base_app, category: appCategory, start: now };
+        } else if (activeApp.app !== base_app) {
+          // App switched: close current segment and push to timeline
+          const duration = Math.round((now.getTime() - activeApp.start.getTime()) / 1000);
+          if (duration > 0) {
+            appUsageTimelineRef.current.push({
+              app: activeApp.app,
+              category: activeApp.category,
+              start: activeApp.start,
+              end: now,
+              duration
+            });
+          }
+          // Start new segment
+          activeAppRef.current = { app: base_app, category: appCategory, start: now };
+        }
+
+        // Accumulate seconds to the summary map
+        if (elapsedSec > 0) {
+          // We floor or ceil, let's round
+          const sec = Math.round(elapsedSec);
+          if (sec > 0) {
+            appUsageSummaryRef.current[base_app] = (appUsageSummaryRef.current[base_app] || 0) + sec;
+          }
+        }
+      }
+      // ----------------------------------------
       const isOffTask = offTaskSecondsRef.current >= OFF_TASK_IDLE_SEC;
 
       // Final idle verdict: ANY one signal is sufficient
@@ -166,24 +214,29 @@ export const SessionProvider = ({ children }) => {
       //   • FOCUSED (reward)   : +2 pts awarded once every 5 uninterrupted focused
       //                          minutes. Timer resets if focus breaks.
       const session = workSessionRef.current;
-      if (session?.running && session?.workStatus !== 'BREAK' && session?.sessionId && employee?._id) {
+      const currentEmployee = employeeRef.current;
+
+      if (session?.running && session?.workStatus !== 'BREAK' && session?.sessionId && currentEmployee?._id) {
         const wt     = wellnessThrottleRef.current;
         const nowMs  = Date.now();
         const currentStatus = data.status; // 'Focused','Drowsy','Distracted','Absent','No Camera'
 
         const fireWellnessEvent = (eventType) => {
-          const currentScore = sessionWellnessScoreRef.current;
+          // PHASE 1A: currentScore is REMOVED — server is now authoritative.
+          // PHASE 1 CLIENT TIMESTAMP: send the exact engine-side timestamp so
+          // the graph plots the event at the correct moment, not at network-arrival time.
           logWellnessEventApi({
-            empId:        employee._id,
-            sessionId:    session.sessionId,
+            empId:           currentEmployee._id,
+            sessionId:       session.sessionId,
             eventType,
-            currentScore,
+            clientTimestamp: new Date().toISOString(),
           }).then((res) => {
             if (res?.success && typeof res.newScore === 'number') {
+              // Update local display score from server's authoritative response
               sessionWellnessScoreRef.current = res.newScore;
               setSessionWellnessScore(res.newScore);
             }
-          }).catch(() => {}); // Non-fatal
+          }).catch(() => {}); // Non-fatal — wellness events must never crash sessions
         };
 
         // ── 1. DROWSY — edge-trigger (only once when transitioning INTO drowsy) ─
@@ -195,7 +248,7 @@ export const SessionProvider = ({ children }) => {
         // ── 2. DISTRACTED — Accumulated Leaky Bucket (fires once per 60s sustained) ────
         // Avoids punishing "noisy focus" (e.g. 50s distracted, 2s focus, 10s distracted).
         // Distracted adds time. Focused subtracts time. If it hits 60s, fire penalty.
-        if (currentStatus === 'Distracted') {
+        if (currentStatus?.startsWith('Distracted')) {
           wt.distractedAccumulatorMs += (elapsedSec * 1000);
           if (wt.distractedAccumulatorMs >= 60_000) {
             fireWellnessEvent('DISTRACTED');
@@ -227,10 +280,21 @@ export const SessionProvider = ({ children }) => {
             fireWellnessEvent('FOCUSED');
             wt.lastStreakCount = streaksEarned;
           }
+
+          // ── PHASE 1C: Steady-State HEARTBEAT — graph anchor every 10 mins ───
+          // Fires a zero-delta marker so the graph shows continuous activity
+          // during perfectly focused periods (no empty flat lines).
+          const HEARTBEAT_INTERVAL_MS = 10 * 60 * 1000;
+          if (!wt.lastHeartbeatMs || (nowMs - wt.lastHeartbeatMs) >= HEARTBEAT_INTERVAL_MS) {
+            fireWellnessEvent('HEARTBEAT');
+            wt.lastHeartbeatMs = nowMs;
+          }
         } else if (currentStatus !== 'Focused') {
           // Focus broken — reset the streak timer and counter
           wt.focusedStartMs  = null;
           wt.lastStreakCount = 0;
+          // Also reset heartbeat timer so it fires fresh when focus resumes
+          wt.lastHeartbeatMs = null;
         }
 
         // Always update the last known status for edge-detection next frame
@@ -280,25 +344,109 @@ export const SessionProvider = ({ children }) => {
       distractedAccumulatorMs: 0,
       focusedStartMs:          null,
       lastStreakCount:         0,
+      lastHeartbeatMs:         null,
     };
     engineIdleRef._lastStatus = undefined; // reset biometric state tracking
   }, [updateWorkSession]);
 
+  /**
+   * Syncs the local workSessionState with the database.
+   * Prevents "Ghost Sessions" where local storage says 'running' but DB is closed.
+   */
+  const syncWorkSessionWithDb = useCallback(async (empId, activeConsent = null) => {
+    if (!empId) return;
+    try {
+      const res = await resumeSessionApi({ empId });
+      if (res?.success && res.session) {
+        // DB says session is active - sync our local state to DB values
+        const s = res.session;
+        setWorkSessionState({
+          running: true,
+          sessionId: s._id,
+          focusMode: s.focusMode,
+          workStatus: s.workStatus,
+          startTime: new Date(s.startTime).getTime(),
+          activeSec: s.activeTime || 0,
+          idleSec: s.idleTime || 0,
+          waitingSec: s.waitingTime || 0,
+          breakSec: s.breakTime || 0,
+        });
+
+        // Sync authoritative wellness score from DB
+        if (typeof res.wellnessScore === 'number') {
+          sessionWellnessScoreRef.current = res.wellnessScore;
+          setSessionWellnessScore(res.wellnessScore);
+        }
+
+        // Engine start/stop is now handled reactively by the useEffect below
+      }
+    } catch (err) {
+      // If 404, it means no active session exists for this user
+      if (err.status === 404) {
+        console.log("[Session] No active session found in DB. Resetting local state.");
+        setWorkSessionState({
+          running: false,
+          sessionId: null,
+          activeSec: 0,
+          idleSec: 0,
+          waitingSec: 0,
+          breakSec: 0,
+          focusMode: false,
+          workStatus: "WORKING",
+          startTime: null,
+        });
+      }
+    }
+  }, [consent, currentLivenessSlot]);
+
   const startEngineForSession = useCallback((sessionId) => {
-    if (isElectron()) {
-      // Respect consent: start with camera and tracking only if they enabled it
-      window.electronAPI.engine.start({ 
-        withCamera: !!consent?.cameraEnabled,
-        withTracking: !!consent?.trackingEnabled 
+    // Engine start is now handled reactively by the useEffect below
+  }, []);
+
+  // ── ENGINE REACTIVE SYNC ──────────────────────────────────────────────────
+  // This effect acts as the "Single Source of Truth" for the engine state.
+  // It ensures that whenever the session resumes or consent is loaded, 
+  // the engine is synchronized correctly with the backend process.
+  useEffect(() => {
+    if (!isElectron()) return;
+
+    const session = workSessionState;
+    // We start if:
+    // 1. A work session is running (Biometric Wellness Tracking)
+    // 2. OR a liveness check is active (Security Verification)
+    const shouldBeRunning = session.running || livenessModalOpen;
+
+    if (shouldBeRunning && consent) {
+      console.log("[EngineSync] Synchronizing engine: STARTING", { 
+        withCamera: consent.cameraEnabled || livenessModalOpen, // Always need camera for liveness
+        withTracking: !!consent.trackingEnabled 
       });
+      
+      window.electronAPI.engine.start({ 
+        withCamera: !!consent.cameraEnabled || livenessModalOpen,
+        withTracking: !!consent.trackingEnabled 
+      });
+
       window.electronAPI.engine.setSessionCtx({
-        sessionId,
-        empId: employee?.empId,
+        sessionId: session.sessionId || null,
+        empId: employee?._id || employee?.empId,
         currentLivenessSlot: currentLivenessSlot,
         accessToken: localStorage.getItem("wg_accessToken"),
       });
+    } 
+    else if (!shouldBeRunning) {
+      console.log("[EngineSync] Synchronizing engine: STOPPING");
+      window.electronAPI.engine.stop();
     }
-  }, [consent, employee, currentLivenessSlot]);
+  }, [
+    workSessionState.running, 
+    workSessionState.sessionId, 
+    consent, 
+    employee?._id, 
+    employee?.empId, 
+    currentLivenessSlot,
+    livenessModalOpen
+  ]);
 
   // Update the Electron session context whenever the current liveness slot changes
   useEffect(() => {
@@ -326,6 +474,12 @@ export const SessionProvider = ({ children }) => {
         empId,
         currentLivenessSlot: slotIndex,
         accessToken: token,
+      });
+
+      // Show native system notification so user knows to return to app
+      window.electronAPI.notification.show({
+        title: 'Action Required',
+        body: 'Biometric Liveness check requested. Please return to Workguard.'
       });
     }
     setLivenessModalOpen(true);
@@ -447,7 +601,7 @@ export const SessionProvider = ({ children }) => {
   const refreshLivenessStatus = useCallback(async () => {
     if (!employee?.empId) return;
     try {
-      const res = await getLivenessStatusApi(employee.empId);
+      const res = await getLivenessStatusApi();
       if (res.success) {
         const slots = res.livenessSlots || [];
         setLivenessSlots(slots);
@@ -482,36 +636,63 @@ export const SessionProvider = ({ children }) => {
     }
   }, [employee?.empId]);
 
-  // Fetch liveness status on employee login
+  // Fetch liveness status on employee login - wait for accessToken to be ready
   useEffect(() => {
-    if (employee?.empId) {
+    if (employee?.empId && accessToken) {
       refreshLivenessStatus();
     }
-  }, [employee?.empId, refreshLivenessStatus]);
+  }, [employee?.empId, accessToken, refreshLivenessStatus]);
 
   // ===== HEARTBEAT (every 2 minutes while app is open) =====================
   // Accumulates platform time in the DB so attendance is based on app-open time,
   // NOT on whether a work session is running.
   useEffect(() => {
-    if (!employee?.empId) return;
+    if (!employee?.empId || !accessToken) return;
 
-    // Send one heartbeat immediately on login to ensure a DailyActivity record exists
-    heartbeatApi(employee.empId).then(res => {
-      if (res?.success) platformTimeRef.current = res.totalPlatformTime;
-    }).catch(err =>
-      console.warn("[Heartbeat] Initial ping failed:", err)
-    );
+    let retryCount = 0;
+    const maxRetries = 5;
+
+    let currentDateStr = null;
+
+    const fireInitialHeartbeat = async () => {
+      try {
+        const res = await heartbeatApi();
+        if (res?.success) {
+          platformTimeRef.current = res.totalPlatformTime;
+          currentDateStr = res.date;
+          console.log("[Heartbeat] Initial daily activity created/synced.");
+        }
+      } catch (err) {
+        console.warn(`[Heartbeat] Initial ping failed (attempt ${retryCount + 1}):`, err);
+        if (retryCount < maxRetries) {
+          retryCount++;
+          setTimeout(fireInitialHeartbeat, 10000); // Retry after 10s if first one fails
+        }
+      }
+    };
+
+    // Send one heartbeat immediately to ensure a DailyActivity record exists for the day
+    fireInitialHeartbeat();
 
     const interval = setInterval(() => {
-      heartbeatApi(employee.empId).then(res => {
-        if (res?.success) platformTimeRef.current = res.totalPlatformTime;
+      heartbeatApi().then(res => {
+        if (res?.success) {
+          platformTimeRef.current = res.totalPlatformTime;
+          
+          // Detect day rollover (midnight)
+          if (currentDateStr && res.date && currentDateStr !== res.date) {
+            console.warn("[Context] Date change detected at midnight. Reloading app state.");
+            window.location.reload();
+          }
+          currentDateStr = res.date;
+        }
       }).catch(err =>
         console.warn("[Heartbeat] Ping failed:", err)
       );
     }, 120_000); // every 2 minutes
 
     return () => clearInterval(interval);
-  }, [employee?.empId]);
+  }, [employee?.empId, accessToken]);
 
   // ===== PLATFORM-TIME LIVENESS SCHEDULER ===================================
   // Reads the exact triggerPlatformSeconds from each slot.
@@ -537,7 +718,7 @@ export const SessionProvider = ({ children }) => {
           platformTimeRef.current >= slot.triggerPlatformSeconds
         ) {
           const token = localStorage.getItem("wg_accessToken");
-          triggerLivenessModal(slot.slotIndex, employee.empId, token);
+          triggerLivenessModal(slot.slotIndex, employee._id, token);
           break; // One at a time
         }
       }
@@ -554,16 +735,39 @@ export const SessionProvider = ({ children }) => {
     const save = setInterval(async () => {
       try {
         const currentSession = workSessionRef.current;
-        await checkpointApi({
+        // Flush both the timeline and the summary buffer to send incremental deltas
+        const timelineFlush = [...appUsageTimelineRef.current];
+        const appUsageFlush = { ...appUsageSummaryRef.current };
+        
+        appUsageTimelineRef.current = [];
+        appUsageSummaryRef.current = {};
+
+        const res = await checkpointApi({
           sessionId:      currentSession.sessionId,
           activeSeconds:  currentSession.activeSec,
           idleSeconds:    currentSession.idleSec,
           waitingSeconds: currentSession.waitingSec,
           breakSeconds:   currentSession.breakSec,
           workStatus:     currentSession.workStatus,
+          appUsage:       appUsageFlush,
+          appUsageTimeline: timelineFlush,
         });
+
+        // If the session spanned midnight, the server auto-completes it.
+        // We must stop it locally.
+        if (res?.stale) {
+          console.warn("[Context] Session spanned midnight and was auto-completed by server.");
+          stopWorkSession();
+          window.location.reload();
+        }
+
       } catch (err) {
         console.error("[Context] Checkpoint error:", err);
+        // loop-hole fix: if the session is gone from DB, stop it locally too
+        if (err.status === 404 || err.response?.status === 404) {
+          console.warn("[Context] Active session not found on server. Stopping local session.");
+          stopWorkSession();
+        }
       }
     }, 30000);
 
@@ -587,7 +791,7 @@ export const SessionProvider = ({ children }) => {
       if (!telemetry) return; // engine not running or not in Electron
       try {
         await wellnessSyncApi({
-          empId:            employee.empId,
+          empId:            employee._id, // Using ObjectId — backend resolves empId
           strainScore:      telemetry.strain_score       ?? 0,
           flowDurationMins: telemetry.flow_duration_mins ?? 0,
           isFragmented:     telemetry.is_fragmented      ?? false,
@@ -715,13 +919,21 @@ export const SessionProvider = ({ children }) => {
             }
           }
           // Fetch user's latest consent dynamically on session start
+          let fetchedConsent = null;
           try {
             const consentData = await getConsent();
             if (consentData.success && consentData.data) {
-              setConsent(consentData.data);
+              fetchedConsent = consentData.data;
+              setConsent(fetchedConsent);
             }
           } catch (e) {
             console.error("Failed to load consent on app load", e);
+          }
+
+          // Loop-hole fix: Sync session status with DB immediately after auth is confirmed
+          const currentEmp = JSON.parse(localStorage.getItem("wg_employee") || "{}");
+          if (currentEmp?.empId) {
+            await syncWorkSessionWithDb(currentEmp.empId, fetchedConsent);
           }
         } catch (err) {
           console.warn("Session restore failed, trying refresh:", err);
@@ -775,7 +987,7 @@ export const SessionProvider = ({ children }) => {
 
     // Tell the server this slot was missed
     if (slotIndex && employee?.empId) {
-      markLivenessMissedApi({ empId: employee.empId, slotIndex }).catch(err =>
+      markLivenessMissedApi({ slotIndex }).catch(err =>
         console.error("[Session] markMissed failed:", err)
       );
       // Refresh so the UI reflects the MISSED status

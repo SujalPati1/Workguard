@@ -94,9 +94,9 @@ useEffect(() => {
 
     try {
       const res = await startSessionApi({
-        empId: employee.empId,
         focusMode,
         workStatus,
+        // empId is resolved server-side from the JWT token
       });
 
       if (res?.session?._id) {
@@ -136,9 +136,8 @@ useEffect(() => {
     if (!employee?.empId) return;
 
     try {
-      const res = await resumeSessionApi({
-        empId: employee.empId,
-      });
+      const res = await resumeSessionApi({});
+        // empId resolved server-side from JWT
 
       if (res?.session?._id) {
         const s = res.session;
@@ -176,7 +175,7 @@ useEffect(() => {
 
     const restoreSession = async () => {
       try {
-        const res = await resumeSessionApi({ empId: employee.empId });
+        const res = await resumeSessionApi({}); // empId resolved server-side from JWT
         if (res?.session?._id) {
           const s = res.session;
           updateWorkSession({

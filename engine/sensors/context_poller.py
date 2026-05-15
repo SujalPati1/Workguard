@@ -33,66 +33,93 @@ import psutil
 # Categories: Deep Work | Comms | Browser | Meeting | Media | Terminal | System | Productivity | Social | Other
 _PROCESS_MAP: dict[str, tuple[str, str]] = {
     # Browsers
-    "chrome.exe":           ("Google Chrome",          "Browser"),
-    "firefox.exe":          ("Firefox",                "Browser"),
-    "msedge.exe":           ("Microsoft Edge",         "Browser"),
-    "brave.exe":            ("Brave",                  "Browser"),
-    "opera.exe":            ("Opera",                  "Browser"),
-    "vivaldi.exe":          ("Vivaldi",                "Browser"),
-    "waterfox.exe":         ("Waterfox",               "Browser"),
+    "chrome.exe":             ("Google Chrome",          "Browser"),
+    "firefox.exe":            ("Firefox",                "Browser"),
+    "msedge.exe":             ("Microsoft Edge",         "Browser"),
+    "brave.exe":              ("Brave",                  "Browser"),
+    "opera.exe":              ("Opera",                  "Browser"),
+    "vivaldi.exe":            ("Vivaldi",                "Browser"),
+    "waterfox.exe":           ("Waterfox",               "Browser"),
     # IDEs & Code Editors
-    "code.exe":             ("VS Code",                "Deep Work"),
-    "cursor.exe":           ("Cursor",                 "Deep Work"),
-    "pycharm64.exe":        ("PyCharm",                "Deep Work"),
-    "idea64.exe":           ("IntelliJ IDEA",          "Deep Work"),
-    "webstorm64.exe":       ("WebStorm",               "Deep Work"),
-    "clion64.exe":          ("CLion",                  "Deep Work"),
-    "rider64.exe":          ("Rider",                  "Deep Work"),
-    "sublime_text.exe":     ("Sublime Text",           "Deep Work"),
-    "notepad++.exe":        ("Notepad++",              "Deep Work"),
-    "vim.exe":              ("Vim",                    "Deep Work"),
-    "nvim.exe":             ("Neovim",                 "Deep Work"),
+    "code.exe":               ("VS Code",                "Deep Work"),
+    "cursor.exe":             ("Cursor",                 "Deep Work"),
+    "pycharm64.exe":          ("PyCharm",                "Deep Work"),
+    "idea64.exe":             ("IntelliJ IDEA",          "Deep Work"),
+    "webstorm64.exe":         ("WebStorm",               "Deep Work"),
+    "clion64.exe":            ("CLion",                  "Deep Work"),
+    "rider64.exe":            ("Rider",                  "Deep Work"),
+    "sublime_text.exe":       ("Sublime Text",           "Deep Work"),
+    "notepad++.exe":          ("Notepad++",              "Deep Work"),
+    "vim.exe":                ("Vim",                    "Deep Work"),
+    "nvim.exe":               ("Neovim",                 "Deep Work"),
+    "atom.exe":               ("Atom",                   "Deep Work"),
+    "brackets.exe":           ("Brackets",               "Deep Work"),
+    # Workguard app itself
+    "antigravity.exe":        ("Antigravity",            "Deep Work"),
+    "electron.exe":           ("Electron App",           "Deep Work"),
+    # Database tools
+    "mongodbcompass.exe":     ("MongoDB Compass",        "Deep Work"),
+    "dbeaver.exe":            ("DBeaver",                "Deep Work"),
+    "datagrip64.exe":         ("DataGrip",               "Deep Work"),
+    "tableplus.exe":          ("TablePlus",              "Deep Work"),
+    "ssms.exe":               ("SQL Server Mgmt",        "Deep Work"),
+    "azuredatastudio.exe":    ("Azure Data Studio",      "Deep Work"),
+    # API & Dev Tools
+    "postman.exe":            ("Postman",                "Deep Work"),
+    "insomnia.exe":           ("Insomnia",               "Deep Work"),
+    "gitextensions.exe":      ("Git Extensions",         "Deep Work"),
+    "sourcetree.exe":         ("Sourcetree",             "Deep Work"),
+    "githubdesktop.exe":      ("GitHub Desktop",         "Deep Work"),
+    "gitkraken.exe":          ("GitKraken",              "Deep Work"),
+    "docker desktop.exe":     ("Docker Desktop",         "Deep Work"),
+    "docker.exe":             ("Docker",                 "Deep Work"),
     # Office / Productivity
-    "winword.exe":          ("Microsoft Word",         "Deep Work"),
-    "excel.exe":            ("Microsoft Excel",        "Deep Work"),
-    "powerpnt.exe":         ("PowerPoint",             "Deep Work"),
-    "onenote.exe":          ("OneNote",                "Productivity"),
-    "notion.exe":           ("Notion",                 "Deep Work"),
-    "obsidian.exe":         ("Obsidian",               "Deep Work"),
-    "figma.exe":            ("Figma",                  "Deep Work"),
+    "winword.exe":            ("Microsoft Word",         "Deep Work"),
+    "excel.exe":              ("Microsoft Excel",        "Deep Work"),
+    "powerpnt.exe":           ("PowerPoint",             "Deep Work"),
+    "onenote.exe":            ("OneNote",                "Productivity"),
+    "notion.exe":             ("Notion",                 "Deep Work"),
+    "obsidian.exe":           ("Obsidian",               "Deep Work"),
+    "figma.exe":              ("Figma",                  "Deep Work"),
+    "xd.exe":                 ("Adobe XD",               "Deep Work"),
+    "photoshop.exe":          ("Adobe Photoshop",        "Deep Work"),
+    "illustrator.exe":        ("Adobe Illustrator",      "Deep Work"),
+    "acrobat.exe":            ("Adobe Acrobat",          "Productivity"),
     # Communication
-    "slack.exe":            ("Slack",                  "Comms"),
-    "discord.exe":          ("Discord",                "Comms"),
-    "outlook.exe":          ("Microsoft Outlook",      "Comms"),
-    "thunderbird.exe":      ("Thunderbird",            "Comms"),
-    "mimecast.exe":         ("Mimecast",               "Comms"),
-    # Meetings (separate from general Comms for focus scoring)
-    "teams.exe":            ("Microsoft Teams",        "Meeting"),
-    "zoom.exe":             ("Zoom",                   "Meeting"),
-    "webexmta.exe":         ("Cisco Webex",            "Meeting"),
-    "lync.exe":             ("Skype for Business",     "Meeting"),
+    "slack.exe":              ("Slack",                  "Comms"),
+    "discord.exe":            ("Discord",                "Comms"),
+    "outlook.exe":            ("Microsoft Outlook",      "Comms"),
+    "thunderbird.exe":        ("Thunderbird",            "Comms"),
+    "mimecast.exe":           ("Mimecast",               "Comms"),
+    # Meetings
+    "teams.exe":              ("Microsoft Teams",        "Meeting"),
+    "zoom.exe":               ("Zoom",                   "Meeting"),
+    "webexmta.exe":           ("Cisco Webex",            "Meeting"),
+    "lync.exe":               ("Skype for Business",     "Meeting"),
     # Media
-    "vlc.exe":              ("VLC",                    "Media"),
-    "spotify.exe":          ("Spotify",                "Media"),
-    "mpv.exe":              ("MPV Player",             "Media"),
-    "wmplayer.exe":         ("Windows Media Player",   "Media"),
-    "foobar2000.exe":       ("foobar2000",             "Media"),
+    "vlc.exe":                ("VLC",                    "Media"),
+    "spotify.exe":            ("Spotify",                "Media"),
+    "mpv.exe":                ("MPV Player",             "Media"),
+    "wmplayer.exe":           ("Windows Media Player",   "Media"),
+    "foobar2000.exe":         ("foobar2000",             "Media"),
     # Terminals
-    "cmd.exe":              ("Command Prompt",         "Terminal"),
-    "powershell.exe":       ("PowerShell",             "Terminal"),
-    "pwsh.exe":             ("PowerShell Core",        "Terminal"),
-    "windowsterminal.exe":  ("Windows Terminal",       "Terminal"),
-    "wt.exe":               ("Windows Terminal",       "Terminal"),
-    "wezterm-gui.exe":      ("WezTerm",                "Terminal"),
-    "alacritty.exe":        ("Alacritty",              "Terminal"),
-    # System utilities
-    "explorer.exe":         ("File Explorer",          "System"),
-    "taskmgr.exe":          ("Task Manager",           "System"),
-    "regedit.exe":          ("Registry Editor",        "System"),
-    "mspaint.exe":          ("Paint",                  "System"),
-    "notepad.exe":          ("Notepad",                "System"),
-    "snippingtool.exe":     ("Snipping Tool",          "System"),
-    "calculator.exe":       ("Calculator",             "System"),
+    "cmd.exe":                ("Command Prompt",         "Terminal"),
+    "powershell.exe":         ("PowerShell",             "Terminal"),
+    "pwsh.exe":               ("PowerShell Core",        "Terminal"),
+    "windowsterminal.exe":    ("Windows Terminal",       "Terminal"),
+    "wt.exe":                 ("Windows Terminal",       "Terminal"),
+    "wezterm-gui.exe":        ("WezTerm",                "Terminal"),
+    "alacritty.exe":          ("Alacritty",              "Terminal"),
+    # System utilities — intentionally low weight
+    "explorer.exe":           ("File Explorer",          "System"),
+    "taskmgr.exe":            ("Task Manager",           "System"),
+    "regedit.exe":            ("Registry Editor",        "System"),
+    "mspaint.exe":            ("Paint",                  "System"),
+    "notepad.exe":            ("Notepad",                "System"),
+    "snippingtool.exe":       ("Snipping Tool",          "System"),
+    "calculator.exe":         ("Calculator",             "System"),
+    "systemsettings.exe":     ("Windows Settings",       "System"),
+    "control.exe":            ("Control Panel",          "System"),
 }
 
 # Browser sub-category patterns — evaluated in order against raw_title.
@@ -161,9 +188,16 @@ def _categorize(process_name: str, raw_title: str) -> dict:
 # Background poller class
 # ---------------------------------------------------------------------------
 
+# Minimum seconds an app must be active before it's considered a real switch
+# Anything shorter is noise (Alt-Tab flicker, system popups)
+_TRANSIENT_THRESHOLD: float = 2.0
+
+
 class WindowContextPoller:
     """
     Polls the active foreground window on Windows at a fixed interval (default 1Hz).
+    Includes transient noise filtering: app switches shorter than _TRANSIENT_THRESHOLD
+    seconds are ignored and credit is returned to the previous stable app.
 
     Runs as a daemon thread — exits automatically when the main process does.
     The only mutable shared state is self._state, protected by self._lock.
@@ -190,6 +224,10 @@ class WindowContextPoller:
             name="WindowContextPoller",
             daemon=True,
         )
+        # Transient filter state
+        self._pending_state: dict = dict(_UNKNOWN_STATE)  # candidate new state
+        self._pending_since: float = 0.0                  # when the candidate first appeared
+        self._stable_state: dict = dict(_UNKNOWN_STATE)   # last confirmed stable state
 
     # ------------------------------------------------------------------
     # Public API
@@ -244,9 +282,33 @@ class WindowContextPoller:
 
                 # Sanitize immediately — raw_title is consumed and discarded here
                 sanitized = _categorize(process_name, raw_title)
+                now = time.time()
 
-                with self._lock:
-                    self._state = sanitized
+                # ── TRANSIENT NOISE FILTER ────────────────────────────────
+                # If the newly detected app is the same as the current stable app,
+                # commit it directly (no pending needed).
+                if sanitized["process"] == self._stable_state.get("process"):
+                    self._pending_state = sanitized
+                    self._pending_since = now
+                    with self._lock:
+                        self._state = sanitized
+                    self._stable_state = sanitized
+                else:
+                    # A different app appeared — start or continue a pending window
+                    if sanitized["process"] != self._pending_state.get("process"):
+                        # Brand new candidate — reset the pending timer
+                        self._pending_state = sanitized
+                        self._pending_since = now
+                    elif (now - self._pending_since) >= _TRANSIENT_THRESHOLD:
+                        # Candidate has been stable long enough — promote to stable
+                        self._stable_state = sanitized
+                        with self._lock:
+                            self._state = sanitized
+                    # else: candidate is too new — keep reporting the last stable state
+                    else:
+                        with self._lock:
+                            self._state = self._stable_state
+                # ─────────────────────────────────────────────────────────
 
             except Exception as exc:
                 # Never crash the polling thread — log and continue

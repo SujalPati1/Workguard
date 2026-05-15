@@ -1,6 +1,7 @@
 const Session = require("../models/Session.model");
 const Consent = require("../models/Consent");
 const { getOrCreateDaily, recalcAttendance } = require("./dailyActivityController");
+const { getLastScore } = require("./wellnessController");
 
 const isSessionStale = (session) => {
   if (!session || !session.startTime) return false;
@@ -29,11 +30,18 @@ const completeStaleSession = async (session) => {
 // ✅ START SESSION
 const startSession = async (req, res) => {
   try {
-    const { empId, focusMode, workStatus } = req.body;
+    const userId = req.user?.id;
+    const { focusMode, workStatus } = req.body;
 
-    if (!empId) {
-      return res.status(400).json({ message: "empId is required" });
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
     }
+
+    // Resolve empId from ObjectId
+    const User = require("../models/User");
+    const user = await User.findById(userId).select("empId");
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const empId = user.empId;
 
     // ✅ Prevent multiple running sessions
     const existing = await Session.findOne({
@@ -135,11 +143,15 @@ const stopSession = async (req, res) => {
 // ✅ RESUME SESSION (Find and return the last IN_PROGRESS session)
 const resumeSession = async (req, res) => {
   try {
-    const { empId } = req.body;
-
-    if (!empId) {
-      return res.status(400).json({ message: "empId is required" });
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
     }
+
+    const User = require("../models/User");
+    const user = await User.findById(userId).select("empId");
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const empId = user.empId;
 
     const session = await Session.findOne({
       empId,
@@ -167,6 +179,7 @@ const resumeSession = async (req, res) => {
         totalLivenessPassed: daily.totalLivenessPassed,
         attendanceResult: daily.attendanceResult,
       },
+      wellnessScore: await getLastScore(session._id),
     });
   } catch (error) {
     return res.status(500).json({
@@ -179,7 +192,10 @@ const resumeSession = async (req, res) => {
 // ✅ CHECKPOINT (Auto-save progress every 30 seconds)
 const checkpoint = async (req, res) => {
   try {
-    const { sessionId, activeSeconds, idleSeconds, waitingSeconds, breakSeconds, workStatus } = req.body;
+    const {
+      sessionId, activeSeconds, idleSeconds, waitingSeconds, breakSeconds, workStatus,
+      appUsage, appUsageTimeline
+    } = req.body;
 
     if (!sessionId) {
       return res.status(400).json({ message: "sessionId is required" });
@@ -189,6 +205,15 @@ const checkpoint = async (req, res) => {
 
     if (!session) {
       return res.status(404).json({ message: "Session not found" });
+    }
+
+    // Auto-complete if the session spanned across midnight
+    if (isSessionStale(session)) {
+      await completeStaleSession(session);
+      return res.status(205).json({
+        message: "Session stale (spanned midnight). Auto-completed.",
+        stale: true,
+      });
     }
 
     // Update current times
@@ -206,6 +231,70 @@ const checkpoint = async (req, res) => {
       waitingTime: waitingSeconds || 0,
       breakTime: breakSeconds || 0,
     });
+
+    // ── Update App Usage Tracking ─────────────────────────────────────────────
+    // Categorization fallback — aligned with engine category labels
+    const APP_CATEGORY_MAP = {
+      "antigravity.exe":      "Deep Work",
+      "electron.exe":         "Deep Work",
+      "code.exe":             "Deep Work",
+      "cursor.exe":           "Deep Work",
+      "pycharm64.exe":        "Deep Work",
+      "idea64.exe":           "Deep Work",
+      "mongodbcompass.exe":   "Deep Work",
+      "dbeaver.exe":          "Deep Work",
+      "datagrip64.exe":       "Deep Work",
+      "tableplus.exe":        "Deep Work",
+      "ssms.exe":             "Deep Work",
+      "postman.exe":          "Deep Work",
+      "insomnia.exe":         "Deep Work",
+      "githubdesktop.exe":    "Deep Work",
+      "gitkraken.exe":        "Deep Work",
+      "docker.exe":           "Deep Work",
+      "figma.exe":            "Deep Work",
+      "photoshop.exe":        "Deep Work",
+      "winword.exe":          "Deep Work",
+      "excel.exe":            "Deep Work",
+      "powerpnt.exe":         "Deep Work",
+      "cmd.exe":              "Terminal",
+      "powershell.exe":       "Terminal",
+      "pwsh.exe":             "Terminal",
+      "windowsterminal.exe":  "Terminal",
+      "wt.exe":               "Terminal",
+      "slack.exe":            "Comms",
+      "outlook.exe":          "Comms",
+      "teams.exe":            "Meeting",
+      "zoom.exe":             "Meeting",
+      "chrome.exe":           "Browser",
+      "msedge.exe":           "Browser",
+      "firefox.exe":          "Browser",
+      "explorer.exe":         "System",
+    };
+
+    if (appUsage && typeof appUsage === "object") {
+      for (const [appName, seconds] of Object.entries(appUsage)) {
+        if (typeof seconds === "number" && seconds > 0) {
+          // MongoDB does not allow dots (.) in Map keys. Sanitize them.
+          const safeAppName = appName.replace(/\./g, "_");
+          const currentTotal = session.appUsageSummary.get(safeAppName) || 0;
+          session.appUsageSummary.set(safeAppName, currentTotal + seconds);
+        }
+      }
+      // Ensure Mongoose detects the Map update
+      session.markModified("appUsageSummary");
+    }
+
+    if (Array.isArray(appUsageTimeline) && appUsageTimeline.length > 0) {
+      // Auto-categorize before pushing to DB
+      const processedTimeline = appUsageTimeline.map(item => {
+        let cat = item.category;
+        if (cat === "Other" || cat === "Unknown" || !cat) {
+          cat = APP_CATEGORY_MAP[item.app.toLowerCase()] || "Unknown";
+        }
+        return { ...item, category: cat };
+      });
+      session.appUsageTimeline.push(...processedTimeline);
+    }
 
     await session.save();
 
@@ -276,11 +365,15 @@ const syncDailyFromAllSessions = async (empId) => {
 // ✅ GET TODAY REPORT
 const getTodayReport = async (req, res) => {
   try {
-    const { empId } = req.params;
-
-    if (!empId) {
-      return res.status(400).json({ message: "empId is required" });
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
     }
+
+    const User = require("../models/User");
+    const user = await User.findById(userId).select("empId");
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const empId = user.empId;
 
     // Get DailyActivity — the single source of truth
     const daily = await getOrCreateDaily(empId);
@@ -304,6 +397,7 @@ const getTodayReport = async (req, res) => {
       sessionCount: daily.sessionCount,
       totalWorkTime: daily.totalDuration,
       totalActive: daily.totalActiveTime,
+      totalLoggedTime: daily.totalPlatformTime,
       totalIdle: daily.totalIdleTime,
       totalWaiting: daily.totalWaitingTime,
       totalBreak: daily.totalBreakTime,

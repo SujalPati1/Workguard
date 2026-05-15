@@ -31,13 +31,14 @@ const request = async (url, options = {}) => {
 
 /**
  * Log a single biometric event.
- * @param {{ empId, sessionId, eventType, currentScore }} payload
+ * @param {{ empId, sessionId, eventType, clientTimestamp? }} payload
+ * NOTE: currentScore is DEPRECATED — server computes score atomically.
  * Returns: { success, newScore, pointsDelta }
  */
 export const logWellnessEventApi = (payload) =>
   request(`${BASE}/event`, {
     method: "POST",
-    body:   JSON.stringify(payload),
+    body: JSON.stringify(payload),
   });
 
 /**
@@ -47,7 +48,7 @@ export const logWellnessEventApi = (payload) =>
 export const finalizeWellnessApi = (payload) =>
   request(`${BASE}/session/finalize`, {
     method: "POST",
-    body:   JSON.stringify(payload),
+    body: JSON.stringify(payload),
   });
 
 /**

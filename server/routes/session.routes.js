@@ -19,8 +19,8 @@ router.post("/stop",       authMiddleware, stopSession);
 router.post("/resume",     authMiddleware, resumeSession);
 router.post("/checkpoint", authMiddleware, checkpoint);
 
-// Session report endpoints — also protected
-router.get("/report/today/:empId", authMiddleware, getTodayReport);
-router.get("/:sessionId",          authMiddleware, getSessionById);
+// Session report endpoints — also protected (no empId needed — JWT identifies user)
+router.get("/report/today",  authMiddleware, getTodayReport);
+router.get("/:sessionId",    authMiddleware, getSessionById);
 
 module.exports = router;
