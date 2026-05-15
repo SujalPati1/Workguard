@@ -1,0 +1,395 @@
+import React, { useEffect, useState, useMemo, useCallback } from "react";
+import { formatHMS } from "../utils/timeUtils";
+import { useSession } from "../context/SessionContext";
+import { getTodayReportApi } from "../api/reportApi";
+import {
+  Activity,
+  Brain,
+  Heart,
+  Clock,
+  Sparkles,
+  ShieldCheck,
+} from "lucide-react";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+} from "recharts";
+
+const Dashboard = () => {
+  const { employee } = useSession();
+
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadReport = useCallback(async () => {
+    if (!employee?.empId) return;
+    try {
+      setLoading(true);
+      setError("");
+      const data = await getTodayReportApi();
+      setReport(data && typeof data === "object" ? data : {});
+    } catch (err) {
+      setError(
+        err?.response?.data?.message || "Backend not responding or invalid response."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [employee?.empId]);
+
+  useEffect(() => {
+    loadReport();
+  }, [loadReport]);
+
+  /* ---------------- SAFE DATA EXTRACTION ---------------- */
+
+  const attendanceStatus = report?.attendanceStatus ?? "Absent";
+  const focusScore = Number(report?.focusScore ?? 0);
+
+  // totalLoggedTime is the entire day's login/platform time, totalWorkedTime is actual productivity (active)
+  const totalLoggedTime = Number(report?.platformTime ?? 0);
+  const totalWorkedTime = Number(report?.activeTime ?? 0);
+  // console.log(report)
+
+  // Build the Productivity Intensity timeline from today's sessions
+  const activityTimeline = useMemo(() => {
+    const sessions = Array.isArray(report?.sessions) ? report.sessions : [];
+    return sessions.map((s, i) => ({
+      time: s.startTime ? new Date(s.startTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : `S${i + 1}`,
+      productivity: s.productivityIndex ?? 0,
+    }));
+  }, [report]);
+
+  const burnoutRisk = useMemo(() => {
+    if (focusScore > 75) return "Low";
+    if (focusScore > 50) return "Moderate";
+    return "High";
+  }, [focusScore]);
+
+  /* ---------------- SAFE AI INSIGHTS ---------------- */
+
+  const insights = useMemo(() => {
+    const list = [];
+
+    if (focusScore > 80) {
+      list.push("Strong focus performance maintained throughout the session.");
+    }
+
+    if (focusScore < 50) {
+      list.push(
+        "Focus levels fluctuated. Consider structured deep-work intervals."
+      );
+    }
+
+    if (activityTimeline.length > 0) {
+      const lowest = activityTimeline.reduce((min, p) =>
+        Number(p.productivity) < Number(min.productivity) ? p : min
+      );
+      if (lowest?.time && lowest.productivity < 40) {
+        list.push(
+          `Productivity intensity dipped around ${lowest.time}. High-focus intervals may help.`
+        );
+      }
+    }
+
+    if (!list.length) {
+      list.push("Consistent work intensity observed throughout your sessions.");
+    }
+
+    return list;
+  }, [focusScore, activityTimeline]);
+
+  /* ---------------- LOADING & ERROR ---------------- */
+
+  if (loading)
+    return <div style={{ padding: "40px" }}>Loading dashboard...</div>;
+
+  if (error)
+    return (
+      <div style={{ padding: "40px", color: "red" }}>
+        {error}
+      </div>
+    );
+
+  /* ---------------- ORIGINAL UI (UNCHANGED) ---------------- */
+
+  return (
+    <div
+      style={{
+        padding: "30px 40px",
+        width: "100%",
+        fontFamily: "Inter, system-ui, sans-serif",
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          marginBottom: 30,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-end",
+        }}
+      >
+        <div>
+          <h1 style={{ fontSize: 28, fontWeight: 600 }}>Welcome back!</h1>
+          <p style={{ color: "#6b7280", marginTop: 6 }}>
+            Here's your work wellness overview for today
+          </p>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <p style={{ fontSize: 12, color: "#94a3b8", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Daily Progress</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 18, fontWeight: 800, color: "#0f172a" }}>
+              {Math.min(100, Math.round(((report?.activeTime || 0) / (report?.presentThreshold || 360)) * 100))}%
+            </span>
+            <div style={{ width: 120, height: 8, background: "#f1f5f9", borderRadius: 4, overflow: "hidden" }}>
+              <div style={{
+                width: `${Math.min(100, ((report?.activeTime || 0) / (report?.presentThreshold || 360)) * 100)}%`,
+                height: "100%",
+                background: "linear-gradient(90deg, #3b82f6, #2dd4bf)",
+                borderRadius: 4,
+                transition: "width 0.5s ease-out"
+              }} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Progress Hero */}
+      <div className="wg-card" style={{
+        padding: "30px",
+        marginBottom: 30,
+        background: "linear-gradient(135deg, #1e293b, #0f172a)",
+        color: "white",
+        position: "relative",
+        overflow: "hidden"
+      }}>
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <h3 style={{ margin: 0, color: "#94a3b8", fontSize: 14, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em" }}>Daily Presence Goal</h3>
+            <span style={{
+              padding: "4px 12px",
+              background: (report?.platformTime || 0) >= (report?.presentThreshold || 360) ? "#059669" : "#334155",
+              borderRadius: 20,
+              fontSize: 12,
+              fontWeight: 700
+            }}>
+              {(report?.platformTime || 0) >= (report?.presentThreshold || 360) ? "GOAL REACHED" : "IN PROGRESS"}
+            </span>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 10 }}>
+            <h2 style={{ fontSize: 48, fontWeight: 800, margin: 0 }}>
+              {Math.min(100, Math.round(((report?.platformTime || 0) / (report?.presentThreshold || 360)) * 100))}%
+            </h2>
+            <span style={{ color: "#94a3b8", fontSize: 16 }}>attendance completed</span>
+          </div>
+
+          <div style={{ width: "100%", height: 14, background: "rgba(255,255,255,0.1)", borderRadius: 7, marginBottom: 15, overflow: "hidden" }}>
+            <div style={{
+              width: `${Math.min(100, ((report?.platformTime || 0) / (report?.presentThreshold || 360)) * 100)}%`,
+              height: "100%",
+              background: "linear-gradient(90deg, #60a5fa, #34d399)",
+              borderRadius: 7,
+              transition: "width 1s cubic-bezier(0.34, 1.56, 0.64, 1)",
+              boxShadow: "0 0 20px rgba(96, 165, 250, 0.5)"
+            }} />
+          </div>
+
+          <p style={{ margin: 0, color: "#94a3b8", fontSize: 14 }}>
+            {(report?.platformTime || 0) < (report?.presentThreshold || 360)
+              ? `You need ${Math.ceil(((report?.presentThreshold || 360) - (report?.platformTime || 0)) / 60)} more minutes of online presence to reach today's target.`
+              : "Excellent! You have fulfilled your online presence requirement for today."
+            }
+          </p>
+        </div>
+
+        {/* Decorative Background Elements */}
+        <div style={{
+          position: "absolute", top: -50, right: -50, width: 200, height: 200,
+          background: "radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%)",
+          borderRadius: "50%"
+        }} />
+      </div>
+
+      {/* Top Cards */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: 20,
+          marginBottom: 30,
+        }}
+      >
+        <StatCard
+          icon={
+            <div
+              style={{
+                backgroundColor: "#DBEAFE",
+                padding: "10px",
+                borderRadius: "50%",
+                display: "flex",
+              }}
+            >
+              <Activity size={20} color="blue" />
+            </div>
+          }
+          title="Work Session"
+          value={attendanceStatus}
+          sub={`Worked ${formatHMS(totalWorkedTime)}`}
+        />
+
+        <StatCard
+          icon={
+            <div
+              style={{
+                backgroundColor: "#FFF7ED",
+                padding: "10px",
+                borderRadius: "50%",
+                display: "flex",
+              }}
+            >
+              <Brain size={20} color="#CC7722" />
+            </div>
+          }
+          title="Focus Score"
+          value={`${focusScore}%`}
+          sub="Active / Total ratio"
+        />
+
+        <StatCard
+          icon={
+            <div
+              style={{
+                backgroundColor: "#FEE2E2",
+                padding: "10px",
+                borderRadius: "50%",
+                display: "flex",
+              }}
+            >
+              <Heart size={20} color="red" fill="red" />
+            </div>
+          }
+          title="Burnout Risk"
+          value={burnoutRisk}
+          sub="Based on focus pattern"
+        />
+
+        <StatCard
+          icon={
+            <div
+              style={{
+                backgroundColor: "#E0F7FA",
+                padding: "10px",
+                borderRadius: "50%",
+                display: "flex",
+              }}
+            >
+              <Clock size={20} color="cyan" />
+            </div>
+          }
+          title="Total Worked Time"
+          value={formatHMS(totalLoggedTime)}
+          sub="Today's total accumulated login time"
+        />
+      </div>
+
+      {/* Productivity Timeline */}
+      <div className="wg-card" style={{ padding: 25, marginBottom: 30 }}>
+        <h3 style={{ marginBottom: 20 }}>Work Productivity Intensity</h3>
+
+        {activityTimeline.length > 0 ? (
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={activityTimeline}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#94a3b8" }} />
+              <YAxis domain={[0, 100]} axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#94a3b8" }} />
+              <Tooltip 
+                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
+                itemStyle={{ fontWeight: 700, color: '#3b82f6' }}
+              />
+              <Line
+                type="monotone"
+                dataKey="productivity"
+                name="Productivity Index"
+                stroke="#3b82f6"
+                strokeWidth={4}
+                dot={{ r: 6, fill: "#3b82f6", strokeWidth: 2, stroke: "#fff" }}
+                activeDot={{ r: 8, fill: "#2dd4bf", strokeWidth: 0 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <div style={{ textAlign: "center", color: "#9ca3af", padding: "40px 0" }}>
+            No productivity data available yet
+          </div>
+        )}
+      </div>
+
+      {/* AI Wellness Section */}
+      <div
+        style={{
+          background: "linear-gradient(135deg, #dcfce7, #bbf7d0)",
+          padding: 28,
+          borderRadius: 18,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Sparkles size={22} color="#16a34a" />
+          <h3 style={{ margin: 0 }}>AI Wellness Insights</h3>
+        </div>
+
+        <ul
+          style={{
+            marginTop: 18,
+            paddingLeft: 20,
+            lineHeight: 1.9,
+          }}
+        >
+          {insights.map((s, i) => (
+            <li key={i}>{s}</li>
+          ))}
+        </ul>
+
+        <div
+          style={{
+            marginTop: 25,
+            paddingTop: 15,
+            borderTop: "1px solid #a7f3d0",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            color: "#065f46",
+            fontSize: 14,
+          }}
+        >
+          <ShieldCheck size={18} />
+          <span>
+            Your data is processed locally and remains completely private.
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**  Card Component */
+const StatCard = ({ icon, title, value, sub }) => (
+  <div className="wg-card" style={{ padding: 20 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      {icon}
+      <h4 style={{ color: "#6b7280", margin: 0 }}>{title}</h4>
+    </div>
+
+    <h2 style={{ marginTop: 15 }}>{value}</h2>
+    <p style={{ color: "#6b7280", marginTop: 6 }}>{sub}</p>
+  </div>
+);
+
+export default Dashboard;
