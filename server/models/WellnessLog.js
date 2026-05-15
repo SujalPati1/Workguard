@@ -35,9 +35,9 @@ const wellnessLogSchema = new mongoose.Schema(
     eventType: {
       type:    String,
       enum:    [
-        "FOCUSED", "DROWSY", "DISTRACTED", "YAWN", "BAD_POSTURE", 
+        "FOCUSED", "DROWSY", "DISTRACTED", "YAWN", "BAD_POSTURE",
         "BREAK_RECOVERY", "HEARTBEAT",
-        "FOCUS_MODE_ON", "FOCUS_MODE_OFF", "BREAK_START", 
+        "FOCUS_MODE_ON", "FOCUS_MODE_OFF", "BREAK_START",
         "BREAK_END", "WAITING_START", "WAITING_END"
       ],
       required: true,
