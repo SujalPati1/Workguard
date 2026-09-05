@@ -655,6 +655,31 @@ export const SessionProvider = ({ children }) => {
     }
   }, [employee?.empId, accessToken, refreshLivenessStatus]);
 
+  // ===== EXACT MIDNIGHT ROLLOVER ============================================
+  // Calculates exactly how many milliseconds remain until 12:00:00 AM local time.
+  // Triggers an immediate hard reload to securely reset all dashboards and local state.
+  useEffect(() => {
+    if (!employee?.empId) return;
+
+    const now = new Date();
+    const midnight = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + 1, // Next day
+      0, 0, 0, 0 // 12:00:00.000 AM
+    );
+    
+    // Add an extra 500ms padding to ensure the server's local clock has also rolled over
+    const msUntilMidnight = midnight.getTime() - now.getTime() + 500;
+
+    const timeout = setTimeout(() => {
+      console.warn(`[Context] Clock struck midnight. Reloading app to initialize ${midnight.toLocaleDateString()}`);
+      window.location.reload();
+    }, msUntilMidnight);
+
+    return () => clearTimeout(timeout);
+  }, [employee?.empId]);
+
   // ===== HEARTBEAT (every 2 minutes while app is open) =====================
   // Accumulates platform time in the DB so attendance is based on app-open time,
   // NOT on whether a work session is running.

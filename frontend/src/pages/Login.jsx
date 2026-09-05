@@ -308,12 +308,12 @@ const Login = () => {
                   <br></br>
                   For password issues, contact admin.
                 </p>
-                <p className="wg-tip-text" style={{ marginTop: 8 }}>
+                {/* <p className="wg-tip-text" style={{ marginTop: 8 }}>
                   New employee?{" "}
                   <Link to="/register" style={{ color: "rgba(147,197,253,0.98)", fontWeight: 900 }}>
                     Create account →
                   </Link>
-                </p>
+                </p> */}
               </div>
             </div>
           </motion.div>

@@ -243,12 +243,17 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
+    title: 'Workguard',
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
+
+  // Completely remove the default 'File, Edit, View, Window, Help' menu
+  mainWindow.setMenu(null);
 
   mainWindow.loadURL('http://localhost:5173');
 

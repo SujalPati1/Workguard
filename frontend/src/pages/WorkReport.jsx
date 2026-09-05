@@ -6,6 +6,15 @@ import {
 } from "../api/reportApi.js";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 
 const WorkReport = () => {
   const { employee } = useSession();
@@ -156,25 +165,47 @@ const WorkReport = () => {
         styles: { fontSize: 10, cellPadding: 4 }
       });
 
-      // 4. Session History (if summary data exists)
-      if (summary && summary.sessions && summary.sessions.length > 0) {
+      // 4. Session History (Today's sessions only)
+      if (report && report.sessions && report.sessions.length > 0) {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(12);
-        doc.text("Recent Session History", 15, doc.lastAutoTable.finalY + 15);
+        doc.text("Today's Session Breakdown", 15, doc.lastAutoTable.finalY + 15);
 
-        const sessionData = summary.sessions.slice(0, 10).map(s => [
-          new Date(s.sessionStart).toLocaleDateString(),
-          formatHHMM(s.activeSeconds || 0),
-          formatHHMM(s.idleSeconds || 0),
+        const sessionData = report.sessions.map(s => [
+          new Date(s.startTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+          formatTime(s.activeTime || 0),
+          formatTime(s.idleTime || 0),
+          `${s.productivityIndex || 0}%`,
           s.workStatus || "WORKING"
         ]);
 
         autoTable(doc, {
           startY: doc.lastAutoTable.finalY + 20,
-          head: [["Date", "Active", "Idle", "Status"]],
+          head: [["Time", "Active", "Idle", "Productivity", "Status"]],
           body: sessionData,
           theme: "grid",
           headStyles: { fillColor: [71, 85, 105] },
+          styles: { fontSize: 9 }
+        });
+      }
+
+      // 4.5 Top Applications Used (if available)
+      if (report.appUsageSummary && report.appUsageSummary.length > 0) {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(12);
+        doc.text("Top Applications Used", 15, doc.lastAutoTable.finalY + 15);
+
+        const appData = report.appUsageSummary.slice(0, 15).map(app => [
+          app.app,
+          formatTime(app.duration)
+        ]);
+
+        autoTable(doc, {
+          startY: doc.lastAutoTable.finalY + 20,
+          head: [["Application", "Duration"]],
+          body: appData,
+          theme: "grid",
+          headStyles: { fillColor: [14, 165, 233] }, // light blue
           styles: { fontSize: 9 }
         });
       }
@@ -202,6 +233,43 @@ const WorkReport = () => {
     }
   };
 
+  // ─── Frontend Aggregation ──────────────────────────────────────────────────
+  const getAggregatedData = () => {
+    if (!summary || !summary.dailyBreakdown) return null;
+    
+    let totalActive = 0;
+    let totalIdle = 0;
+    let totalWaiting = 0;
+    let totalBreak = 0;
+    let presentCount = 0;
+    let partialCount = 0;
+
+    summary.dailyBreakdown.forEach(day => {
+      totalActive += (day.totalActive || 0);
+      totalIdle += (day.totalIdle || 0);
+      totalWaiting += (day.totalWaiting || 0);
+      totalBreak += (day.totalBreak || 0);
+      if (day.result === "PRESENT") presentCount++;
+      if (day.result === "PARTIAL") partialCount++;
+    });
+
+    const totalDays = summary.dailyBreakdown.length;
+    const computedAttendance = totalDays > 0 
+      ? Math.round(((presentCount + partialCount * 0.5) / totalDays) * 100) 
+      : 0;
+
+    // Prepare chart data (last 14 days, reversed so oldest is first)
+    const chartData = summary.dailyBreakdown.slice(0, 14).reverse().map(d => ({
+      date: new Date(d.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      Active: Math.round((d.totalActive || 0) / 3600 * 10) / 10,
+      Idle: Math.round((d.totalIdle || 0) / 3600 * 10) / 10
+    }));
+
+    return { totalActive, totalIdle, totalWaiting, totalBreak, computedAttendance, chartData };
+  };
+
+  const aggData = getAggregatedData();
+
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="wg-report-page">
@@ -224,7 +292,7 @@ const WorkReport = () => {
         {/* Attendance badge circle */}
         <div className="wg-att-badge-wrap">
           <div className="wg-att-badge">
-            {summary ? `${summary.attendancePercent}%` : "--"}
+            {aggData ? `${aggData.computedAttendance}%` : "--"}
           </div>
           <p className="wg-att-badge-text">Attendance</p>
         </div>
@@ -251,16 +319,16 @@ const WorkReport = () => {
             <div className="wg-summary-grid">
               <div className="wg-card">
                 <p className="wg-card-title">Attendance %</p>
-                <h2 className="wg-card-big">{summary.attendancePercent}%</h2>
+                <h2 className="wg-card-big">{aggData.computedAttendance}%</h2>
                 <p className="wg-card-sub">
-                  Based on Active vs Idle (fair model)
+                  Based on Liveness & Time
                 </p>
               </div>
 
               <div className="wg-card">
                 <p className="wg-card-title">Total Active</p>
                 <h2 className="wg-card-big">
-                  {formatHHMM(summary.totals?.totalActive || 0)}
+                  {formatHHMM(aggData.totalActive)}
                 </h2>
                 <p className="wg-card-sub">Actual working time</p>
               </div>
@@ -268,7 +336,7 @@ const WorkReport = () => {
               <div className="wg-card">
                 <p className="wg-card-title">Total Idle</p>
                 <h2 className="wg-card-big">
-                  {formatHHMM(summary.totals?.totalIdle || 0)}
+                  {formatHHMM(aggData.totalIdle)}
                 </h2>
                 <p className="wg-card-sub">Auto-detected inactivity</p>
               </div>
@@ -276,12 +344,39 @@ const WorkReport = () => {
               <div className="wg-card">
                 <p className="wg-card-title">Waiting + Break</p>
                 <h2 className="wg-card-big">
-                  {formatHHMM(
-                    (summary.totals?.totalWaiting || 0) +
-                      (summary.totals?.totalBreak || 0)
-                  )}
+                  {formatHHMM(aggData.totalWaiting + aggData.totalBreak)}
                 </h2>
                 <p className="wg-card-sub">Not punished as idle</p>
+              </div>
+            </div>
+
+            {/* Historical Chart */}
+            <div className="wg-recent-box">
+              <h4 className="wg-recent-title">Active vs Idle Trend (Last 14 Days)</h4>
+              <div style={{ width: "100%", height: 280, marginTop: "20px" }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={aggData.chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorActive" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="colorIdle" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#94a3b8" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#94a3b8" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} dy={10} />
+                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} />
+                    <Tooltip 
+                      contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 25px rgba(0,0,0,0.1)' }}
+                      labelStyle={{ fontWeight: 'bold', color: '#0f172a', marginBottom: '8px' }}
+                    />
+                    <Area type="monotone" dataKey="Active" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorActive)" />
+                    <Area type="monotone" dataKey="Idle" stroke="#94a3b8" strokeWidth={3} fillOpacity={1} fill="url(#colorIdle)" />
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
             </div>
 
@@ -347,37 +442,107 @@ const WorkReport = () => {
         {msg && <p className="wg-msg">{msg}</p>}
 
         {report && (
-          <div className="wg-report-card">
-            <h3>Daily Work Summary</h3>
+          <div className="wg-report-dashboard">
+            <div className="wg-report-header-card">
+              <div>
+                <h4 className="wg-report-date">{new Date(report.date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h4>
+                <p className="wg-report-time-range">
+                  {report.sessionStart ? new Date(report.sessionStart).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "—"} 
+                  {" "}to{" "} 
+                  {report.sessionEnd ? new Date(report.sessionEnd).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : report.hasLiveSession ? "In Progress" : "—"}
+                </p>
+              </div>
+              <div className={`wg-report-status-badge ${report.attendanceStatus}`}>
+                {report.attendanceStatus}
+              </div>
+            </div>
 
-            <p><b>Date:</b> {report.date}</p>
+            <div className="wg-report-metrics-grid">
+              <div className="wg-metric-card">
+                <span className="wg-metric-icon" style={{background: "#e0e7ff", color: "#4f46e5"}}>⏱️</span>
+                <div>
+                  <p className="wg-metric-label">Total Logged Time</p>
+                  <h3 className="wg-metric-value">{formatTime(report.totalLoggedTime)}</h3>
+                </div>
+              </div>
+              
+              <div className="wg-metric-card">
+                <span className="wg-metric-icon" style={{background: "#dcfce7", color: "#16a34a"}}>⚡</span>
+                <div>
+                  <p className="wg-metric-label">Productivity Index</p>
+                  <h3 className="wg-metric-value">{report.productivityScore}%</h3>
+                </div>
+              </div>
 
-            <p>
-              <b>Session Time:</b>{" "}
-              {report.sessionStart
-                ? new Date(report.sessionStart).toLocaleTimeString()
-                : "—"}{" "}
-              -{" "}
-              {report.sessionEnd
-                ? new Date(report.sessionEnd).toLocaleTimeString()
-                : report.hasLiveSession
-                ? "In Progress"
-                : "—"}
-            </p>
+              <div className="wg-metric-card">
+                <span className="wg-metric-icon" style={{background: "#fef3c7", color: "#d97706"}}>🎯</span>
+                <div>
+                  <p className="wg-metric-label">Focus Score</p>
+                  <h3 className="wg-metric-value">{report.focusScore}%</h3>
+                </div>
+              </div>
 
-            <hr />
+              <div className="wg-metric-card">
+                <span className="wg-metric-icon" style={{background: "#fee2e2", color: "#dc2626"}}>❤️</span>
+                <div>
+                  <p className="wg-metric-label">Burnout Risk</p>
+                  <h3 className="wg-metric-value" style={{color: report.burnoutRisk === "HIGH" ? "#dc2626" : report.burnoutRisk === "MEDIUM" ? "#d97706" : "#16a34a"}}>{report.burnoutRisk}</h3>
+                </div>
+              </div>
+            </div>
 
-            <p><b>Total Logged:</b> {formatTime(report.totalLoggedTime)}</p>
-            <p><b>Active:</b> {formatTime(report.activeTime)}</p>
-            <p><b>Idle:</b> {formatTime(report.idleTime)}</p>
-            <p><b>Focus Mode:</b> {formatTime(report.focusTime)}</p>
+            <div className="wg-report-details-grid">
+              {/* Time Breakdown Bar */}
+              <div className="wg-report-detail-card">
+                <h4 className="wg-detail-title">Time Breakdown</h4>
+                
+                <div className="wg-time-bar-container">
+                  <div className="wg-time-bar">
+                    <div className="wg-time-segment bg-active" style={{width: `${report.totalLoggedTime > 0 ? (report.activeTime / report.totalLoggedTime) * 100 : 0}%`}}></div>
+                    <div className="wg-time-segment bg-idle" style={{width: `${report.totalLoggedTime > 0 ? (report.idleTime / report.totalLoggedTime) * 100 : 0}%`}}></div>
+                    <div className="wg-time-segment bg-break" style={{width: `${report.totalLoggedTime > 0 ? (report.breakTime / report.totalLoggedTime) * 100 : 0}%`}}></div>
+                    <div className="wg-time-segment bg-waiting" style={{width: `${report.totalLoggedTime > 0 ? (report.waitingTime / report.totalLoggedTime) * 100 : 0}%`}}></div>
+                  </div>
+                </div>
 
-            <hr />
+                <div className="wg-time-legend">
+                  <div className="wg-legend-item"><span className="wg-dot bg-active"></span> Active ({formatTime(report.activeTime)})</div>
+                  <div className="wg-legend-item"><span className="wg-dot bg-idle"></span> Idle ({formatTime(report.idleTime)})</div>
+                  <div className="wg-legend-item"><span className="wg-dot bg-break"></span> Break ({formatTime(report.breakTime)})</div>
+                  <div className="wg-legend-item"><span className="wg-dot bg-waiting"></span> Waiting ({formatTime(report.waitingTime)})</div>
+                </div>
+              </div>
 
-            <p><b>Productivity:</b> {report.productivityScore}%</p>
-            <p><b>Focus Score:</b> {report.focusScore}%</p>
-            <p><b>Burnout Risk:</b> {report.burnoutRisk}</p>
-            <p><b>Status:</b> {report.attendanceStatus}</p>
+              {/* App Usage Top 5 */}
+              <div className="wg-report-detail-card">
+                <h4 className="wg-detail-title">Top Applications Used</h4>
+                
+                {(!report.appUsageSummary || report.appUsageSummary.length === 0) ? (
+                  <p className="wg-muted" style={{marginTop: "16px"}}>No application data recorded for this day.</p>
+                ) : (
+                  <div className="wg-app-list">
+                    {report.appUsageSummary.slice(0, 5).map((app, index) => {
+                      // Calculate percentage based on top app to make bars visually distinct
+                      const maxAppTime = report.appUsageSummary[0].duration;
+                      const percent = Math.max(5, (app.duration / maxAppTime) * 100);
+                      
+                      return (
+                        <div key={index} className="wg-app-row">
+                          <div className="wg-app-info">
+                            <span className="wg-app-name">{app.app}</span>
+                            <span className="wg-app-time">{formatTime(app.duration)}</span>
+                          </div>
+                          <div className="wg-app-progress-bg">
+                            <div className="wg-app-progress-fill" style={{width: `${percent}%`}}></div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
           </div>
         )}
       </div>
@@ -648,19 +813,216 @@ const WorkReport = () => {
           margin: 16px 0;
         }
 
+        /* ===== NEW REPORT DASHBOARD CSS ===== */
+        .wg-report-dashboard {
+          margin-top: 24px;
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+        }
+
+        .wg-report-header-card {
+          background: #ffffff;
+          border-radius: 16px;
+          padding: 24px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          border: 1px solid #e2e8f0;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+
+        .wg-report-date {
+          margin: 0;
+          font-size: 20px;
+          font-weight: 700;
+          color: #0f172a;
+        }
+
+        .wg-report-time-range {
+          margin: 6px 0 0;
+          font-size: 15px;
+          color: #64748b;
+          font-weight: 500;
+        }
+
+        .wg-report-status-badge {
+          padding: 8px 16px;
+          border-radius: 999px;
+          font-weight: 700;
+          font-size: 14px;
+          letter-spacing: 0.05em;
+        }
+        
+        .wg-report-status-badge.PRESENT { background: #dcfce7; color: #16a34a; }
+        .wg-report-status-badge.PARTIAL { background: #fef3c7; color: #d97706; }
+        .wg-report-status-badge.ABSENT { background: #fee2e2; color: #dc2626; }
+
+        .wg-report-metrics-grid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 16px;
+        }
+
+        .wg-metric-card {
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
+          border-radius: 16px;
+          padding: 20px;
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+          transition: transform 0.2s;
+        }
+        
+        .wg-metric-card:hover {
+          transform: translateY(-2px);
+        }
+
+        .wg-metric-icon {
+          width: 48px;
+          height: 48px;
+          border-radius: 12px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 24px;
+          flex-shrink: 0;
+        }
+
+        .wg-metric-label {
+          margin: 0;
+          font-size: 13px;
+          font-weight: 600;
+          color: #64748b;
+        }
+
+        .wg-metric-value {
+          margin: 4px 0 0;
+          font-size: 22px;
+          font-weight: 800;
+          color: #0f172a;
+        }
+
+        .wg-report-details-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px;
+        }
+
+        .wg-report-detail-card {
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
+          border-radius: 16px;
+          padding: 24px;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+
+        .wg-detail-title {
+          margin: 0 0 20px;
+          font-size: 16px;
+          font-weight: 700;
+          color: #0f172a;
+        }
+
+        .wg-time-bar-container {
+          margin-top: 10px;
+        }
+
+        .wg-time-bar {
+          display: flex;
+          height: 24px;
+          border-radius: 12px;
+          overflow: hidden;
+          background: #f1f5f9;
+        }
+
+        .wg-time-segment {
+          height: 100%;
+          transition: width 0.5s ease;
+        }
+
+        .bg-active { background: #3b82f6; }
+        .bg-idle { background: #94a3b8; }
+        .bg-break { background: #10b981; }
+        .bg-waiting { background: #f59e0b; }
+
+        .wg-time-legend {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 16px;
+          margin-top: 20px;
+        }
+
+        .wg-legend-item {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 13px;
+          font-weight: 500;
+          color: #475569;
+        }
+
+        .wg-dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+        }
+
+        .wg-app-list {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+
+        .wg-app-row {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .wg-app-info {
+          display: flex;
+          justify-content: space-between;
+          font-size: 14px;
+          font-weight: 600;
+        }
+
+        .wg-app-name { color: #0f172a; }
+        .wg-app-time { color: #64748b; }
+
+        .wg-app-progress-bg {
+          height: 8px;
+          background: #f1f5f9;
+          border-radius: 4px;
+          overflow: hidden;
+        }
+
+        .wg-app-progress-fill {
+          height: 100%;
+          background: #0ea5e9;
+          border-radius: 4px;
+          transition: width 0.5s ease;
+        }
+
         @media(max-width: 1100px){
           .wg-summary-grid{ grid-template-columns: 1fr 1fr; }
+          .wg-report-metrics-grid{ grid-template-columns: 1fr 1fr; }
+          .wg-report-details-grid{ grid-template-columns: 1fr; }
         }
 
         @media(max-width: 650px){
           .wg-report-head{ flex-direction: column; align-items: flex-start; }
           .wg-summary-grid{ grid-template-columns: 1fr; }
+          .wg-report-metrics-grid{ grid-template-columns: 1fr; }
+          .wg-report-header-card { flex-direction: column; align-items: flex-start; gap: 12px; }
         }
 
         @media print {
           .wg-btn, .wg-section-top button { display: none !important; }
           .wg-report-page { background: white; padding: 0; }
-          .wg-section { box-shadow: none; border: 1px solid #eee; }
+          .wg-section, .wg-report-header-card, .wg-metric-card, .wg-report-detail-card { box-shadow: none; border: 1px solid #eee; }
         }
       `}</style>
     </div>

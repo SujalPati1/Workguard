@@ -89,10 +89,10 @@ const ConsentSetup = () => {
         const days = parseInt(retention.split(' ')[0]);
         setMessage(`✅ Changes saved to DB. Data will be stored for ${days} days.`);
         await loadConsent(); // Reload data after save
-        
+
         // Update the global context
         setGlobalConsent(payload);
-        
+
         // If a work session is running and Electron is available, force the camera & tracking state dynamically
         const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
         if (isElectron && workSessionState?.running) {
@@ -159,12 +159,12 @@ const ConsentSetup = () => {
             onChange={() => handleToggle("trackingEnabled")}
           />
 
-          <SettingRow
+          {/* <SettingRow
             label="Wellness Insights"
             desc="AI-powered suggestions for better work-life balance"
             value={consent.wellnessEnabled}
             onChange={() => handleToggle("wellnessEnabled")}
-          />
+          /> */}
         </div>
 
         {/* DATA RETENTION */}
